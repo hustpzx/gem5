@@ -1,0 +1,7 @@
+Import('*')
+
+SimObject('UMController.py')
+
+Source('umcontroller.cc')
+
+DebugFlag('UMController',"For debugging the UMController.")
