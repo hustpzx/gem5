@@ -1,0 +1,7 @@
+Import('*')
+
+SimObject('MemController.py')
+
+Source('memcontroller.cc')
+
+DebugFlag('MemController',"For debugging the MemController.")
