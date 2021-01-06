@@ -1,0 +1,7 @@
+Import('*')
+
+SimObject('SILC.py')
+
+Source('silc.cc')
+
+DebugFlag('SILC',"For debugging the SILC.")
