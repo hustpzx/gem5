@@ -17,7 +17,7 @@
 struct Tag
 {
     bool dirty;
-    uint8_t position;
+    int position;
 };
 
 class TwoLevel : public ClockedObject

@@ -20,7 +20,7 @@ TwoLevel::TwoLevel(TwoLevelParams *params) :
 
     Tag *iter = new Tag;
     iter->dirty = false;
-    iter->position = 0;
+    iter->position = -1;
     for (auto i=0;i<capacity; i++){
         tagList.push_back(*iter);
     }
@@ -52,7 +52,7 @@ TwoLevel::CPUSidePort::sendPacket(PacketPtr pkt)
     panic_if(blockedPacket != nullptr, "Should never try to send if blocked!");
 
     // If we can't send the packet across the port, store it for later.
-    DPRINTF(TwoLevel, "Sending %s to CPU\n", pkt->print());
+    //DPRINTF(TwoLevel, "Sending %s to CPU\n", pkt->print());
     if (!sendTimingResp(pkt)) {
         DPRINTF(TwoLevel, "failed!\n");
         blockedPacket = pkt;
@@ -101,7 +101,7 @@ TwoLevel::CPUSidePort::recvTimingReq(PacketPtr pkt)
         needRetry = true;
         return false;
     } else {
-        DPRINTF(TwoLevel, "Request succeeded\n");
+        //DPRINTF(TwoLevel, "Request succeeded\n");
         return true;
     }
 }
@@ -172,7 +172,7 @@ TwoLevel::handleRequest(PacketPtr pkt, int port_id)
         return false;
     }
 
-    DPRINTF(TwoLevel, "Got request for addr %#x\n", pkt->getAddr());
+    //DPRINTF(TwoLevel, "Got request for addr %#x\n", pkt->getAddr());
 
     // This cache is now blocked waiting for the response to this packet.
     blocked = true;
@@ -203,12 +203,11 @@ bool
 TwoLevel::handleResponse(PacketPtr pkt)
 {
     assert(blocked);
-    DPRINTF(TwoLevel, "Got response %s\n", pkt->print());
-
+    //DPRINTF(TwoLevel, "Got response %s\n", pkt->print());
     Tick whentoinsert = curTick() + insertLatency;
     schedule(new EventFunctionWrapper([this, pkt]{ insert(pkt); },
-                                name() + ".accessEvent", true),
-            whentoinsert);
+                            name() + ".accessEvent", true),
+        whentoinsert);
 
 
 /*
@@ -236,7 +235,7 @@ TwoLevel::handleResponse(PacketPtr pkt)
 void TwoLevel::sendResponse(PacketPtr pkt)
 {
     assert(blocked);
-    DPRINTF(TwoLevel, "Sending resp for addr %#x\n", pkt->getAddr());
+    //DPRINTF(TwoLevel, "Sending resp for addr %#x\n", pkt->getAddr());
 
     int port = waitingPortId;
 
@@ -261,7 +260,8 @@ void
 TwoLevel::handleFunctional(PacketPtr pkt)
 {
     if (accessFunctional(pkt)) {
-        pkt->makeResponse();
+        if (pkt->needsResponse())
+            pkt->makeResponse();
     } else {
         memPort.sendFunctional(pkt);
     }
@@ -272,8 +272,8 @@ TwoLevel::accessTiming(PacketPtr pkt)
 {
     bool hit = accessFunctional(pkt);
 
-    DPRINTF(TwoLevel, "%s for packet: %s\n", hit ? "Hit" : "Miss",
-            pkt->print());
+    //DPRINTF(TwoLevel, "%s for packet: %s\n", hit ? "Hit" : "Miss",
+    //        pkt->print());
 
     if (hit) {
         // Respond to the CPU side
@@ -294,10 +294,10 @@ TwoLevel::accessTiming(PacketPtr pkt)
         unsigned size = pkt->getSize();
         if (addr == block_addr && size == blockSize) {
             // Aligned and block size. We can just forward.
-            DPRINTF(TwoLevel, "forwarding packet\n");
+            //DPRINTF(TwoLevel, "forwarding packet\n");
             memPort.sendPacket(pkt);
         } else {
-            DPRINTF(TwoLevel, "Upgrading packet to block size\n");
+            //DPRINTF(TwoLevel, "Upgrading packet to block size\n");
             panic_if(addr - block_addr + size > blockSize,
                      "Cannot handle accesses that span multiple cache lines");
             // Unaligned access to one cache block
@@ -321,7 +321,7 @@ TwoLevel::accessTiming(PacketPtr pkt)
             // Save the old packet
             originalPacket = pkt;
 
-            DPRINTF(TwoLevel, "forwarding packet\n");
+            //DPRINTF(TwoLevel, "forwarding packet\n");
             memPort.sendPacket(new_pkt);
         }
     }
@@ -334,11 +334,24 @@ TwoLevel::accessFunctional(PacketPtr pkt)
     long blknum = addr / blockSize;
     int pos = blknum / capacity;
     int index = blknum % capacity;
-
     Tag *tag = &tagList[index];
     uint8_t *data = cacheStore[index];
+
+    DPRINTF(TwoLevel,"pos=%d, index=%d, %s\n",pos, index,pkt->print());
+
     if (data != nullptr && tag->position == pos){
-        if (pkt->isWrite()){
+        /* DPRINTF(TwoLevel, "Hit! index=%d, cache data:\n",index);
+        DDUMP(TwoLevel, data, blockSize);
+        Addr blkaddr = pkt->getBlockAddr(blockSize);
+        RequestPtr req = std::make_shared<Request>(
+            blkaddr, blockSize,0,0);
+        PacketPtr new_pkt = new Packet(req, MemCmd::ReadReq, blockSize);
+        new_pkt->allocate();
+        memPort.sendFunctional(new_pkt);
+        DDUMP(TwoLevel, new_pkt->getConstPtr<uint8_t>(), blockSize);
+ */
+        //memPort.sendAtomic(pkt);
+         /* if (pkt->isWrite()){
             if (checkWrite(pkt)){
                 pkt->writeDataToBlock(data, blockSize);
             }
@@ -351,8 +364,35 @@ TwoLevel::accessFunctional(PacketPtr pkt)
             pkt->setDataFromBlock(data, blockSize);
         } else{
             panic("unknown packet type\n");
-        }
+        } */
 
+        if (pkt->isLLSC()){
+            bool update=false;
+            if (pkt->isWrite())
+                update = true;
+            memPort.sendAtomic(pkt);
+            if (update){
+                Addr blkaddr = pkt->getBlockAddr(blockSize);
+                RequestPtr req = std::make_shared<Request>(
+                    blkaddr, blockSize,0,0);
+                PacketPtr new_pkt = new Packet(
+                    req, MemCmd::ReadReq, blockSize);
+                new_pkt->allocate();
+                memPort.sendFunctional(new_pkt);
+                new_pkt->writeDataToBlock(data, blockSize);
+                tag->dirty = true;
+                delete new_pkt;
+            }
+        }else{
+            if (pkt->isWrite()){
+                pkt->writeDataToBlock(data, blockSize);
+                tag->dirty = true;
+            } else if (pkt->isRead()){
+                pkt->setDataFromBlock(data, blockSize);
+            } else{
+                panic("unknown pkt type\n");
+            }
+        }
         return true;
     }
     return false;
@@ -376,6 +416,8 @@ TwoLevel::insert(PacketPtr pkt)
     assert(!(cacheStore[index]!=nullptr && tag->position==pos));
 
     if (cacheStore[index] != nullptr){
+        DPRINTF(TwoLevel, "writeback occured!\n");
+        /*
         assert(tag->position!=pos);
         if (tag->dirty){
             // Write back the data
@@ -384,39 +426,53 @@ TwoLevel::insert(PacketPtr pkt)
                     wb_addr, blockSize, 0, 0);
             PacketPtr wb_pkt = new Packet(wb_req, MemCmd::WritebackDirty);
             wb_pkt->dataDynamic(cacheStore[index]);
-            DPRINTF(TwoLevel, "writing packet back %s\n", pkt->print());
+            //DPRINTF(TwoLevel, "writing packet back %s\n", pkt->print());
 
             memPort.sendPacket(wb_pkt);
             cacheStore[index] = nullptr;
         }
+        */
+    }else{
+        DPRINTF(TwoLevel, "Inserting %s, index=%d, pos=%d\n",
+             pkt->print(), index, pos);
+        //DDUMP(TwoLevel, pkt->getConstPtr<uint8_t>(), blockSize);
+        uint8_t *data = new uint8_t[blockSize];
+        cacheStore[index] = data;
+        assert(pkt->getOffset(blockSize) == 0);
+        pkt->writeDataToBlock(data, blockSize);
+        tag->dirty = false;
+        tag->position = pos;
+        //DDUMP(TwoLevel, cacheStore[index], blockSize);
     }
-    DPRINTF(TwoLevel, "Inserting %s\n", pkt->print());
-    //DDUMP(TwoLevel, pkt->getConstPtr<uint8_t>(), blockSize);
-    uint8_t *data = new uint8_t[blockSize];
-    pkt->writeDataToBlock(data, blockSize);
-    cacheStore[index] = data;
-    tag->dirty = false;
-    tag->position = pos;
 
     missLatency.sample(curTick() - missTime);
 
     if (originalPacket != nullptr){
-        DPRINTF(TwoLevel, "Copying data from new packet to old!\n");
+        /* memPort.sendAtomic(originalPacket);
+        delete pkt;
+        pkt = originalPacket;
+        originalPacket = nullptr; */
+
+        //DPRINTF(TwoLevel, "Copying data from new packet to old!\n");
         bool hit M5_VAR_USED = accessFunctional(originalPacket);
-        panic_if(!hit, "Should always hit after inserting");
-        originalPacket->makeResponse();
+        //panic_if(!hit, "Should always hit after inserting");
+        if (!hit){
+            memPort.sendAtomic(originalPacket);
+        }else{
+            originalPacket->makeResponse();
+        }
         delete pkt;
         pkt = originalPacket;
         originalPacket = nullptr;
-    }
 
+    }
     sendResponse(pkt);
 }
 
 AddrRangeList
 TwoLevel::getAddrRanges() const
 {
-    DPRINTF(TwoLevel, "Sending new ranges\n");
+    //DPRINTF(TwoLevel, "Sending new ranges\n");
     // Just use the same ranges as whatever is on the memory side.
     return memPort.getAddrRanges();
 }
