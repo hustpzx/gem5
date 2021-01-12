@@ -204,9 +204,56 @@ TwoLevel::handleResponse(PacketPtr pkt)
 {
     assert(blocked);
     //DPRINTF(TwoLevel, "Got response %s\n", pkt->print());
-    Tick whentoinsert = curTick() + insertLatency;
-    schedule(new EventFunctionWrapper([this, pkt]{ insert(pkt); },
-                            name() + ".accessEvent", true),
+
+    // The packet should be aligned.
+    assert(pkt->getAddr() ==  pkt->getBlockAddr(blockSize));
+    // The pkt should be a response
+    assert(pkt->isResponse());
+
+    Addr addr = pkt->getAddr();
+    int blknum = addr / blockSize;
+    int pos = blknum / capacity;
+    int index = blknum % capacity;
+
+    Tag *tag = &tagList[index];
+    // the request data shouldn't be in the cache
+    assert(!(cacheStore[index]!=nullptr && tag->position==pos));
+    uint8_t *wb_data = cacheStore[index];
+
+    Tick writeback_Latency = insertLatency;
+    // if confiction occured, replace old block with new one, writeback old
+    if (wb_data != nullptr){
+        DPRINTF(TwoLevel, "writeback: old-pos=%d, new_pos=%d, index=%d\n",
+            tag->position, pos, index);
+
+        assert(tag->position!=pos);
+        if (tag->dirty){
+            // Write back the data
+            Addr wb_addr= (tag->position * capacity + index) * blockSize;
+            RequestPtr wb_req = std::make_shared<Request>(
+                    wb_addr, blockSize, 0, 0);
+            PacketPtr wb_pkt = new Packet(
+                wb_req, MemCmd::WritebackDirty,blockSize);
+            wb_pkt->allocate();
+            wb_pkt->setDataFromBlock(wb_data, blockSize);
+            //wb_pkt->dataDynamic(wb_data);
+            if (wb_addr == 0x5cd80){
+                DDUMP(TwoLevel, wb_pkt->getConstPtr<uint8_t>(), blockSize);
+            }
+            writeback_Latency += memPort.sendAtomic(wb_pkt);
+
+        }
+        delete wb_data;
+
+        cacheStore[index] = nullptr;
+
+
+    }
+
+
+    Tick whentoinsert = curTick() + writeback_Latency;
+    schedule(new EventFunctionWrapper([this, pkt, index, pos]
+        {insert(pkt,index,pos); }, name() + ".accessEvent", true),
         whentoinsert);
 
 
@@ -337,7 +384,7 @@ TwoLevel::accessFunctional(PacketPtr pkt)
     Tag *tag = &tagList[index];
     uint8_t *data = cacheStore[index];
 
-    DPRINTF(TwoLevel,"pos=%d, index=%d, %s\n",pos, index,pkt->print());
+    //DPRINTF(TwoLevel,"pos=%d, index=%d, %s\n",pos, index,pkt->print());
 
     if (data != nullptr && tag->position == pos){
         /* DPRINTF(TwoLevel, "Hit! index=%d, cache data:\n",index);
@@ -351,7 +398,7 @@ TwoLevel::accessFunctional(PacketPtr pkt)
         DDUMP(TwoLevel, new_pkt->getConstPtr<uint8_t>(), blockSize);
  */
         //memPort.sendAtomic(pkt);
-         /* if (pkt->isWrite()){
+          if (pkt->isWrite()){
             if (checkWrite(pkt)){
                 pkt->writeDataToBlock(data, blockSize);
             }
@@ -364,9 +411,9 @@ TwoLevel::accessFunctional(PacketPtr pkt)
             pkt->setDataFromBlock(data, blockSize);
         } else{
             panic("unknown packet type\n");
-        } */
+        }
 
-        if (pkt->isLLSC()){
+       /* if (pkt->isLLSC()){
             bool update=false;
             if (pkt->isWrite())
                 update = true;
@@ -392,58 +439,25 @@ TwoLevel::accessFunctional(PacketPtr pkt)
             } else{
                 panic("unknown pkt type\n");
             }
-        }
+        } */
         return true;
     }
     return false;
 }
 
 void
-TwoLevel::insert(PacketPtr pkt)
+TwoLevel::insert(PacketPtr pkt, int index, int pos)
 {
-    // The packet should be aligned.
-    assert(pkt->getAddr() ==  pkt->getBlockAddr(blockSize));
-    // The pkt should be a response
-    assert(pkt->isResponse());
-
-    Addr addr = pkt->getAddr();
-    int blknum = addr / blockSize;
-    int pos = blknum / capacity;
-    int index = blknum % capacity;
 
     Tag *tag = &tagList[index];
-    // the request data shouldn't be in the cache
-    assert(!(cacheStore[index]!=nullptr && tag->position==pos));
-
-    if (cacheStore[index] != nullptr){
-        DPRINTF(TwoLevel, "writeback occured!\n");
-        /*
-        assert(tag->position!=pos);
-        if (tag->dirty){
-            // Write back the data
-            Addr wb_addr= (tag->position * capacity + index) * blockSize;
-            RequestPtr wb_req = std::make_shared<Request>(
-                    wb_addr, blockSize, 0, 0);
-            PacketPtr wb_pkt = new Packet(wb_req, MemCmd::WritebackDirty);
-            wb_pkt->dataDynamic(cacheStore[index]);
-            //DPRINTF(TwoLevel, "writing packet back %s\n", pkt->print());
-
-            memPort.sendPacket(wb_pkt);
-            cacheStore[index] = nullptr;
-        }
-        */
-    }else{
-        DPRINTF(TwoLevel, "Inserting %s, index=%d, pos=%d\n",
-             pkt->print(), index, pos);
-        //DDUMP(TwoLevel, pkt->getConstPtr<uint8_t>(), blockSize);
-        uint8_t *data = new uint8_t[blockSize];
-        cacheStore[index] = data;
-        assert(pkt->getOffset(blockSize) == 0);
-        pkt->writeDataToBlock(data, blockSize);
-        tag->dirty = false;
-        tag->position = pos;
-        //DDUMP(TwoLevel, cacheStore[index], blockSize);
-    }
+    uint8_t *data = new uint8_t[blockSize];
+    cacheStore[index] = data;
+    assert(pkt->getOffset(blockSize) == 0);
+    pkt->writeDataToBlock(data, blockSize);
+    tag->dirty = false;
+    tag->position = pos;
+    //DDUMP(TwoLevel, cacheStore[index], blockSize);
+    //}
 
     missLatency.sample(curTick() - missTime);
 
@@ -455,12 +469,16 @@ TwoLevel::insert(PacketPtr pkt)
 
         //DPRINTF(TwoLevel, "Copying data from new packet to old!\n");
         bool hit M5_VAR_USED = accessFunctional(originalPacket);
-        //panic_if(!hit, "Should always hit after inserting");
-        if (!hit){
+        panic_if(!hit, "Should always hit after inserting");
+         /* if (!hit){
             memPort.sendAtomic(originalPacket);
         }else{
             originalPacket->makeResponse();
-        }
+        } */
+
+        if (originalPacket->needsResponse())
+            originalPacket->makeResponse();
+
         delete pkt;
         pkt = originalPacket;
         originalPacket = nullptr;

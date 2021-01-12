@@ -333,7 +333,7 @@ class TwoLevel : public ClockedObject
      *
      * @param packet with the data (and address) to insert into the cache
      */
-    void insert(PacketPtr pkt);
+    void insert(PacketPtr pkt, int index, int pos);
 
     /**
      * Return the address ranges this cache is responsible for. Just use the
