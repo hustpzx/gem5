@@ -17,7 +17,7 @@ system.clk_domain.voltage_domain = VoltageDomain()
 # Set up the system
 system.mem_mode = 'timing'
 # create two ranges to represent different memories
-system.mem_ranges = [AddrRange('512kB'), AddrRange('512kB','4608kB')]
+system.mem_ranges = [AddrRange('256kB'), AddrRange('256kB','2304kB')]
 
 # Create a simple CPU
 system.cpu = TimingSimpleCPU()

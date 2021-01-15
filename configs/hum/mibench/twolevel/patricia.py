@@ -17,7 +17,7 @@ system.clk_domain.voltage_domain = VoltageDomain()
 # Set up the system
 system.mem_mode = 'timing'
 # create two ranges to represent different memories
-system.mem_ranges = [AddrRange('4MB')]
+system.mem_ranges = [AddrRange('2MB')]
 
 # Create a simple CPU
 system.cpu = TimingSimpleCPU()
@@ -26,7 +26,7 @@ system.cpu = TimingSimpleCPU()
 system.membus = SystemXBar()
 
 # Create the direct-mapping cache we implemented
-system.cache = TwoLevel(size = '512kB')
+system.cache = TwoLevel(size = '256kB')
 
 # Connect the I and D cache ports of th CPU to the cache.
 # Since cpu_side is a vector port, each time one of these is connected, it

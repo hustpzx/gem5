@@ -29,16 +29,16 @@ system.clk_domain.voltage_domain = VoltageDomain()
 
 # Set up the system
 system.mem_mode = 'timing'               # Use timing accesses
-system.mem_ranges = [AddrRange('4MB')] # Create an address range
+system.mem_ranges = [AddrRange('2MB')] # Create an address range
 
 # Create a simple CPU
 system.cpu = TimingSimpleCPU()
 
 # Create an L1 instruction and data cache
-system.cpu.icache = Cache(size='256kB', assoc=4, tag_latency=2, data_latency=2,
-                            response_latency=2, mshrs=4, tgts_per_mshr=12)
-system.cpu.dcache = Cache(size='256kB', assoc=4, tag_latency=2, data_latency=2,
-                            response_latency=2, mshrs=4, tgts_per_mshr=12)
+system.cpu.icache = Cache(size='128kB', assoc=8, tag_latency=0,
+        data_latency=2, response_latency=1, mshrs=4, tgts_per_mshr=10)
+system.cpu.dcache = Cache(size='128kB', assoc=8, tag_latency=2,
+        data_latency=10,response_latency=1, mshrs=10, tgts_per_mshr=10)
 
 # Connect the instruction and data caches to the CPU
 system.cpu.icache_port = system.cpu.icache.cpu_side

@@ -17,7 +17,7 @@ system.clk_domain.voltage_domain = VoltageDomain()
 # Set up the system
 system.mem_mode = 'timing'
 # create two ranges to represent different memories
-system.mem_ranges = [AddrRange('2304kB')]
+system.mem_ranges = [AddrRange('5MB')]
 
 # Create a simple CPU
 system.cpu = TimingSimpleCPU()
@@ -36,7 +36,7 @@ system.cpu.dcache_port = system.ctrl.cpu_side
 system.cpu.createInterruptController()
 
 # Create SimpleMemDelay object for simulating different delay
-system.mem_delay = SimpleMemDelay(read_req = '3.191ns', write_req = '11.151ns')
+system.mem_delay = SimpleMemDelay(read_req = '2.202ns', write_req = '1.313ns')
 
 # Connect SimpleMemDelay to mem_port of ctrl
 system.ctrl.mem_side = system.mem_delay.slave
@@ -45,16 +45,15 @@ system.ctrl.mem_side = system.mem_delay.slave
 system.system_port = system.ctrl.cpu_side
 
 # Create two SimpleMemory objects to simulate SRAM and STT-RAM
-system.memories = [SimpleMemory(latency='0ns', bandwidth='30.668GB/s')]
+system.memories = [SimpleMemory(latency='0ns', bandwidth='213.689GB/s')]
 
 # Connect SimpleMemory to SimpleMemDelay
 system.memories[0].range = system.mem_ranges[0]
 system.memories[0].port = system.mem_delay.master
 
 process = Process()
-process.cmd = ['tests/mibench/rsynth/say'] +['-a'] +['-q'] + ['-o'] + \
-    ['small_output.au'] + ['<'] + ['smallinput.txt']
-process.output = 'output_small.au'
+process.cmd = ['tests/mibench/basicmath/basicmath_small']
+process.output = 'output_small.out'
 system.cpu.workload = process
 system.cpu.createThreads()
 

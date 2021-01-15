@@ -35,10 +35,10 @@ system.mem_ranges = [AddrRange('8MB')] # Create an address range
 system.cpu = TimingSimpleCPU()
 
 # Create an L1 instruction and data cache
-system.cpu.icache = Cache(size='512kB', assoc=4, tag_latency=2, data_latency=2,
-                            response_latency=2, mshrs=4, tgts_per_mshr=12)
-system.cpu.dcache = Cache(size='512kB', assoc=4, tag_latency=2, data_latency=2,
-                            response_latency=2, mshrs=4, tgts_per_mshr=12)
+system.cpu.icache = Cache(size='128kB', assoc=8, tag_latency=0,
+        data_latency=2, response_latency=1, mshrs=4, tgts_per_mshr=10)
+system.cpu.dcache = Cache(size='128kB', assoc=8, tag_latency=2,
+        data_latency=10,response_latency=1, mshrs=10, tgts_per_mshr=10)
 
 # Connect the instruction and data caches to the CPU
 system.cpu.icache_port = system.cpu.icache.cpu_side
