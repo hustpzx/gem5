@@ -325,6 +325,13 @@ TwoLevel::accessTiming(PacketPtr pkt)
     if (hit) {
         // Respond to the CPU side
         hits++; // update stats
+        if (pkt->isRead()){
+            readHits++;
+        }else if (pkt->isWrite()){
+            writeHits++;
+        }else{
+            panic("unknown reqeust type");
+        }
         //DDUMP(TwoLevel, pkt->getConstPtr<uint8_t>(), pkt->getSize());
         if (pkt->needsResponse()){
             pkt->makeResponse();
@@ -511,6 +518,14 @@ TwoLevel::regStats()
 
     hits.name(name() + ".hits")
         .desc("Number of hits")
+        ;
+
+    readHits.name(name() + ".readHits")
+        .desc("Number of read hits")
+        ;
+
+    writeHits.name(name() + "writeHist")
+        .desc("Number of write hits")
         ;
 
     misses.name(name() + ".misses")

@@ -387,6 +387,8 @@ class TwoLevel : public ClockedObject
 
     /// Cache statistics
     Stats::Scalar hits;
+    Stats::Scalar readHits;
+    Stats::Scalar writeHits;
     Stats::Scalar misses;
     Stats::Histogram missLatency;
     Stats::Formula hitRatio;
