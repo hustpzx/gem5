@@ -231,6 +231,8 @@ class SILC : public ClockedObject
     Stats::Scalar swapNum;
     Stats::Scalar queryNum;
 
+    Stats::Formula extraTimeConsumption;
+
   public:
     AddrRange nearMem;
 

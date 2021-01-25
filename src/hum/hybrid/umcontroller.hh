@@ -257,6 +257,7 @@ class UMController : public ClockedObject
     Stats::Formula extraNMAccess;
     Stats::Formula extraTotalAccess;
 
+    Stats::Formula extraTimeConsumption;
 
   public:
 

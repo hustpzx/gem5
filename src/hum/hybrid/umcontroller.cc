@@ -1048,10 +1048,37 @@ UMController::regStats()
              .desc("Number of extra NM read requests issued by UMC");
     nmWriteNum.name(name() + ".extra_nm_writes")
               .desc("Number of extra NM write requests issued by UMC");
+    extraFMAccess.name(name() + ".extraFMAcess")
+            .desc("Number of extra FM access");
+    extraNMAccess.name(name() + ".extraFMAcess")
+            .desc("Number of extra NM access");
+    extraTotalAccess.name(name() + ".extraTotalAccess")
+            .desc("Number of extra total access");
+    extraTimeConsumption.name(name() + ".extraTimeConsumption")
+            .desc("extra time consumption by umc controller");
 
     extraFMAccess = fmReadNum + fmWriteNum;
     extraNMAccess = nmReadNum + nmWriteNum;
     extraTotalAccess = extraFMAccess + extraNMAccess;
+
+    // bandwidth in ticks/byte
+    // bw(tick/byte) = frequency(tick/s) / bandwidth(bytes/s)
+    int fm_bandwidth = 30;
+    int nm_bandwidth = 13;
+
+    // latency in tick
+    int fm_readLatency = 3511;
+    int fm_writeLatency = 13026;
+    int nm_readLatency = 2202;
+    int nm_writeLatency = 1313;
+
+    // extra time consumption in tick, spend by umc controller for swapping
+    // pages
+    extraTimeConsumption =
+        fmReadNum * (BLK_SIZE * fm_bandwidth + fm_readLatency) +
+        fmWriteNum * (BLK_SIZE * fm_bandwidth + fm_writeLatency) +
+        nmReadNum * (BLK_SIZE * nm_bandwidth + nm_readLatency) +
+        nmWriteNum * (BLK_SIZE * nm_bandwidth + nm_writeLatency);
 }
 
 
