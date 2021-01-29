@@ -33,11 +33,18 @@ key_list = [
     'system.mem_ctrl.bytes_written::total',
 ]
 
+dict = collections.OrderedDict()
 
 workbook = xlsxwriter.Workbook('IMO.xlsx')
 worksheet = workbook.add_worksheet()
 
 fisrtColumn = 0
+
+# IMO scheme leakage power(mW) ,contains SRAM, DRAM and STTRAM
+leakagePower = 113.781 + 54.237 + 4.093
+
+# refresh power of DRAM(mW)
+refreshPower = 0.02
 
 for j, bench in enumerate(benches):
     path = bench + '/small_stats.txt'
@@ -59,10 +66,55 @@ for j, bench in enumerate(benches):
         for line in lines:
             if(key in line):
                 value = line.split()[1]
-
-        worksheet.write(k+1, j+1, value)
+                dict[key] = value
 
     fisrtColumn = 1
+
+    # write stats data to sheet
+    for n, v in enumerate(dict.values()):
+        worksheet.write(n+1, j+1, v)
+
+    staticEnergy = leakagePower * float(dict['sim_seconds']) * 1000000
+    length = len(key_list) +5
+    worksheet.write(length, 0, "StaticEnergy")
+    worksheet.write(length, j+1, staticEnergy)
+
+    refreshEnergy = refreshPower * float(dict['sim_seconds']) * 1000000
+    length = length + 2
+    worksheet.write(length, 0, "RefreshEnergy")
+    worksheet.write(length, j+1, refreshEnergy)
+
+    # access energy per bit, unit:nJ
+    sttram_readEnergy = 0.103
+    sttram_writeEnergy = 1.1
+    dram_readEnergy = 0.318
+    dram_writeEnergy = 0.351
+    sram_readEnergy = 0.117
+    sram_writeEnergy = 0.094
+
+
+    dynamicEnergy = ((int(dict['system.cpu.icache.ReadReq_hits::total'])) * \
+        sram_readEnergy * 64
+        + (int(dict['system.cpu.dcache.ReadReq_hits::total'])) * \
+        dram_readEnergy * 64
+        + (int(dict['system.cpu.dcache.WriteReq_hits::total'])) * \
+        dram_writeEnergy * 64
+        + (int(dict['system.mem_ctrl.bytes_read::total'])) * \
+        sttram_readEnergy
+        + (int(dict['system.mem_ctrl.bytes_written::total'])) * \
+        sttram_writeEnergy ) * 8
+
+    length = length + 2
+    worksheet.write(length, 0, "dynamicEnergy")
+    worksheet.write(length, j+1, dynamicEnergy)
+
+    totalEnergy = staticEnergy + refreshEnergy + dynamicEnergy
+    length = length + 2
+    worksheet.write(length, 0, "totalEnergy")
+    worksheet.write(length, j+1, totalEnergy)
+
+
+
 
 workbook.close()
 print("IMO stats data extracting finished")

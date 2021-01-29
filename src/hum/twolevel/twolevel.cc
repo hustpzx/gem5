@@ -524,7 +524,7 @@ TwoLevel::regStats()
         .desc("Number of read hits")
         ;
 
-    writeHits.name(name() + "writeHist")
+    writeHits.name(name() + ".writeHits")
         .desc("Number of write hits")
         ;
 

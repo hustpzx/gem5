@@ -253,9 +253,6 @@ class UMController : public ClockedObject
     Stats::Scalar fmWriteNum;
     Stats::Scalar nmReadNum;
     Stats::Scalar nmWriteNum;
-    Stats::Formula extraFMAccess;
-    Stats::Formula extraNMAccess;
-    Stats::Formula extraTotalAccess;
 
     Stats::Formula extraTimeConsumption;
 
