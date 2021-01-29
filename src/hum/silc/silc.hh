@@ -231,6 +231,10 @@ class SILC : public ClockedObject
     Stats::Scalar swapNum;
     Stats::Scalar queryNum;
 
+    Stats::Formula resetTime;
+    Stats::Formula swapTime;
+    Stats::Formula queryTime;
+
     Stats::Formula extraTimeConsumption;
 
   public:

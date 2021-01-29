@@ -689,6 +689,29 @@ SILC::regStats()
     queryNum.name(name() + ".queryNum")
         .desc("Number of associaty quering");
 
+    extraTimeConsumption.name((name() + ".extraTimeConsumption"))
+        .desc("extra time consumed by SILC controller");
+
+    int entrySize = 192;
+    int blocksize = 64;
+
+    int nm_bandwidth = 13;
+    int fm_bandwidth = 30;
+
+    int nm_readLatency = 2202;
+    int nm_writeLatency = 1313;
+    int fm_readLatency = 3511;
+    int fm_writeLatency = 13026;
+
+    int tagLatency = 200;
+
+    resetTime = agingResetNum * rmpTable.size() * (entrySize * nm_bandwidth
+        + nm_readLatency + nm_writeLatency);
+    swapTime = swapNum * (blocksize * (fm_bandwidth + nm_bandwidth) * 2 +
+        fm_readLatency + fm_writeLatency + nm_readLatency + nm_writeLatency);
+    queryTime = queryNum * tagLatency;
+
+    extraTimeConsumption = resetTime + swapTime + queryTime;
 }
 
 SILC*
