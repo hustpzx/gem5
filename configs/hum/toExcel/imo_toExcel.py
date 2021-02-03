@@ -62,11 +62,14 @@ for j, bench in enumerate(benches):
         if(fisrtColumn==0):
             worksheet.write(k+1, 0 , key)
 
-        value = '0'
+        found = 0
         for line in lines:
             if(key in line):
                 value = line.split()[1]
                 dict[key] = value
+                found = 1
+        if(found == 0):
+            dict[key] = '0'
 
     fisrtColumn = 1
 
@@ -93,16 +96,17 @@ for j, bench in enumerate(benches):
     sram_writeEnergy = 0.094
 
 
-    dynamicEnergy = ((int(dict['system.cpu.icache.ReadReq_hits::total'])) * \
-        sram_readEnergy * 64
+    dynamicEnergy =
+        ((int(dict['system.cpu.icache.ReadReq_hits::total'])) * \
+            sram_readEnergy * 4
         + (int(dict['system.cpu.dcache.ReadReq_hits::total'])) * \
-        dram_readEnergy * 64
+            dram_readEnergy * 4
         + (int(dict['system.cpu.dcache.WriteReq_hits::total'])) * \
-        dram_writeEnergy * 64
+            dram_writeEnergy * 4
         + (int(dict['system.mem_ctrl.bytes_read::total'])) * \
-        sttram_readEnergy
+            sttram_readEnergy
         + (int(dict['system.mem_ctrl.bytes_written::total'])) * \
-        sttram_writeEnergy ) * 8
+            sttram_writeEnergy ) * 8
 
     length = length + 2
     worksheet.write(length, 0, "dynamicEnergy")
@@ -112,6 +116,8 @@ for j, bench in enumerate(benches):
     length = length + 2
     worksheet.write(length, 0, "totalEnergy")
     worksheet.write(length, j+1, totalEnergy)
+
+    #dict.clear()
 
 
 

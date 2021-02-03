@@ -74,16 +74,16 @@ for j, bench in enumerate(benches):
     nm_readEnergy = 0.117
     nm_writeEnergy = 0.094
 
-    cacheDynamic = ((int(dict['system.cache.readHits'])) * nm_readEnergy * 64
-        + (int(dict['system.cache.writeHits'])) * nm_writeEnergy * 64 ) *8
+    cacheDynamic = ((int(dict['system.cache.readHits'])) * nm_readEnergy * 4
+        + (int(dict['system.cache.writeHits'])) * nm_writeEnergy * 4 ) *8
     length = length + 2
     worksheet.write(length, 0, "cacheDynamic")
     worksheet.write(length, j+1, cacheDynamic)
 
-    memDynamic = ((int(dict['system.memories.bytes_read::total'])) * \
-        fm_readEnergy
-        + (int(dict['system.memories.bytes_written::total'])) * \
-        fm_writeEnergy ) * 8
+    memDynamic =
+    ((int(dict['system.memories.bytes_read::total'])) * fm_readEnergy
+    + (int(dict['system.memories.bytes_written::total'])) * fm_writeEnergy ) \
+        * 8
     length = length + 2
     worksheet.write(length, 0, "memDynamic")
     worksheet.write(length, j+1, memDynamic)

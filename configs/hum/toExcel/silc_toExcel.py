@@ -6,8 +6,6 @@ benches = ['basicmath','blowfish','crc','patricia',
     'rsynth','typeset', 'stringsearch']
 
 key_list = [
-    'host_inst_rate',
-    'host_seconds',
     'sim_seconds',
     'sim_ticks',
     'system.cpu.op_class::MemRead',
@@ -15,12 +13,8 @@ key_list = [
     'system.silc.agingResetNum',
     'system.silc.queryNum',
     'system.silc.swapNum',
-    'system.memories0.bytes_read::.cpu.inst',
-    'system.memories0.bytes_read::.cpu.data',
     'system.memories0.bytes_read::total',
     'system.memories0.bytes_written::total',
-    'system.memories1.bytes_read::.cpu.inst',
-    'system.memories1.bytes_read::.cpu.data',
     'system.memories1.bytes_read::total',
     'system.memories1.bytes_written::total',
 
@@ -83,18 +77,19 @@ for j, bench in enumerate(benches):
     # number of remapping entry
     rmpNum = 256
 
-    memDynamic = (int(dict["system.memories0.bytes_read::total"]) * \
-        fm_readEnergy
+    memDynamic = \
+        (int(dict["system.memories0.bytes_read::total"]) * fm_readEnergy
         + int(dict["system.memories0.bytes_written::total"]) * fm_writeEnergy
         + int(dict["system.memories1.bytes_read::total"]) * nm_readEnergy
-        + int(dict["system.memories1.bytes_written::total"]) * \
-        nm_writeEnergy ) * 8
+        + int(dict["system.memories1.bytes_written::total"]) * nm_writeEnergy \
+        ) * 8
+    length = length + 2
+    worksheet.write(length, 0, "memDynamicEnergy")
+    worksheet.write(length, j+1, memDynamic)
 
-    extraDynamic = ((int(dict['system.silc.queryNum'])) * nm_readEnergy * 64 \
-        + (int(dict['system.silc.swapNum'])) * 64  * \
-        (fm_readEnergy + fm_writeEnergy + nm_readEnergy + nm_writeEnergy) \
-        + (int(dict['system.silc.agingResetNum'])) * rmpNum * 64  * \
-        (nm_readEnergy + nm_writeEnergy)) * 8
+    extraDynamic = (int(dict['system.silc.queryNum'])) * nm_readEnergy \
+        + (int(dict['system.silc.agingResetNum'])) * rmpNum * \
+        (nm_readEnergy + nm_writeEnergy)
 
     length = length + 2
     worksheet.write(length, 0, "extraDynamicEnergy")

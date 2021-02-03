@@ -23,7 +23,7 @@ worksheet = workbook.add_worksheet()
 fisrtColumn = 0
 
 # pure-sram scheme leakage power (mW)
-leakagePower = 113.781 * 1.5
+leakagePower = 113.781 * 4
 
 for j, bench in enumerate(benches):
     path = bench + '/small_stats.txt'
@@ -41,11 +41,15 @@ for j, bench in enumerate(benches):
         if(fisrtColumn == 0):
             worksheet.write(k+1, 0, key)
 
-        value = '0'
+        found = 0
         for line in lines:
             if(key in line):
                 value = line.split()[1]
                 dict[key] = value
+                found = 1
+        if(found == 0):
+            dict[key] = '0'
+
     fisrtColumn = 1
 
     # write bench stats data to xlsx file
@@ -62,10 +66,10 @@ for j, bench in enumerate(benches):
     sram_readEnergy = 0.117
     sram_writeEnergy = 0.094
 
-    dynamicEnergy = ((int(dict['system.memories.bytes_read::total'])) * \
-        sram_readEnergy
-        + (int(dict['system.memories.bytes_written::total'])) * \
-        sram_writeEnergy ) * 8
+    dynamicEnergy = \
+    ((int(dict['system.memories.bytes_read::total'])) * sram_readEnergy
+    + (int(dict['system.memories.bytes_written::total'])) * sram_writeEnergy \
+    ) * 8
     length = length + 2
     worksheet.write(length, 0, "dynamicEnergy")
     worksheet.write(length, j+1, dynamicEnergy)

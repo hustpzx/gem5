@@ -41,11 +41,15 @@ for j, bench in enumerate(benches):
         if(fisrtColumn == 0):
             worksheet.write(k+1, 0, key)
 
-        value = '0'
+        found = 0
         for line in lines:
             if(key in line):
                 value = line.split()[1]
                 dict[key] = value
+                found = 1
+        if(found == 0):
+            dict[key] = '0'
+
     fisrtColumn = 1
 
     # write bench stats data to xlsx file
@@ -63,9 +67,9 @@ for j, bench in enumerate(benches):
     sttram_writeEnergy = 1.1
 
     dynamicEnergy = ((int(dict['system.memories.bytes_read::total'])) * \
-    sttram_readEnergy
+            sttram_readEnergy
         + (int(dict['system.memories.bytes_written::total'])) * \
-        sttram_writeEnergy ) * 8
+            sttram_writeEnergy ) * 8
     length = length + 2
     worksheet.write(length, 0, "dynamicEnergy")
     worksheet.write(length, j+1, dynamicEnergy)
