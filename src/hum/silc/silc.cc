@@ -540,7 +540,7 @@ SILC::swapSubblk(Addr nmaddr, Addr fmaddr)
         nmaddr, 64, 0, 0);
     PacketPtr rd_nm_pkt = new Packet(rd_nm_req, MemCmd::ReadReq);
     rd_nm_pkt->allocate();
-    memPorts[0].sendFunctional(rd_nm_pkt);
+    memPorts[0].sendAtomic(rd_nm_pkt);
     assert(rd_nm_pkt->isResponse());
     // TODO: should stats extra request
 
@@ -549,7 +549,7 @@ SILC::swapSubblk(Addr nmaddr, Addr fmaddr)
         fmaddr, 64, 0, 0);
     PacketPtr rd_fm_pkt = new Packet(rd_fm_req, MemCmd::ReadReq);
     rd_fm_pkt->allocate();
-    memPorts[1].sendFunctional(rd_fm_pkt);
+    memPorts[1].sendAtomic(rd_fm_pkt);
     assert(rd_fm_pkt->isResponse());
 
     RequestPtr wt_fm_req = std::make_shared<Request>(
@@ -557,7 +557,7 @@ SILC::swapSubblk(Addr nmaddr, Addr fmaddr)
     PacketPtr wt_fm_pkt = new Packet(wt_fm_req, MemCmd::WriteReq);
     wt_fm_pkt->allocate();
     wt_fm_pkt->setData(rd_fm_pkt->getPtr<uint8_t>());
-    memPorts[0].sendFunctional(wt_fm_pkt);
+    memPorts[0].sendAtomic(wt_fm_pkt);
     assert(wt_fm_pkt->isResponse());
 
     RequestPtr wt_nm_req = std::make_shared<Request>(
@@ -565,7 +565,7 @@ SILC::swapSubblk(Addr nmaddr, Addr fmaddr)
     PacketPtr wt_nm_pkt = new Packet(wt_nm_req, MemCmd::WriteReq);
     wt_nm_pkt->allocate();
     wt_nm_pkt->setData(rd_nm_pkt->getPtr<uint8_t>());
-    memPorts[1].sendFunctional(wt_nm_pkt);
+    memPorts[1].sendAtomic(wt_nm_pkt);
     assert(wt_nm_pkt->isResponse());
 
 }
@@ -703,7 +703,7 @@ SILC::regStats()
     int fm_readLatency = 3511;
     int fm_writeLatency = 13026;
 
-    int tagLatency = 200;
+    int tagLatency = 500;
 
     resetTime = agingResetNum * rmpTable.size() * (entrySize * nm_bandwidth
         + nm_readLatency + nm_writeLatency);
