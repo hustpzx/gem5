@@ -45,7 +45,7 @@ system.ctrl.mem_side = system.mem_delay.slave
 system.system_port = system.ctrl.cpu_side
 
 # Create two SimpleMemory objects to simulate SRAM and STT-RAM
-system.memories = [SimpleMemory(latency='0ns', bandwidth='213.689GB/s')]
+system.memories = [SimpleMemory(latency='0ns', bandwidth='74.413GB/s')]
 
 # Connect SimpleMemory to SimpleMemDelay
 system.memories[0].range = system.mem_ranges[0]

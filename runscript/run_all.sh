@@ -1,31 +1,31 @@
 #!/bin/bash
 cd ../
 
-Gem5=~/gem5/build/ARM/gem5.opt
+Gem5=~/pzx/gem5/build/ARM/gem5.opt
 
 declare -a Configs
 Configs=(
-    pure
+    #pure
     sram
-    twolevel
-    imo
-    silc
-    hybrid
+    #twolevel
+    #imo
+    #silc
+    #hybrid
 )
 
 declare -a Benches
 Benches=(
-    basicmath
-    blowfish
+    #basicmath
+    #blowfish
     crc
-    patricia
-    rsynth
-    stringsearch
-    typeset
+    #patricia
+    #rsynth
+    #stringsearch
+    #typeset
 )
 
-ScriptDir=~/gem5/configs/hum/mibench/
-OutputDir=~/gem5/m5out/mibench/
+ScriptDir=~/pzx/gem5/configs/hum/mibench/
+OutputDir=~/pzx/gem5/m5out/mibench/
 
 for Config in ${Configs[*]}
 do

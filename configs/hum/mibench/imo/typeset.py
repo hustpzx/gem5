@@ -35,10 +35,10 @@ system.mem_ranges = [AddrRange('8MB')] # Create an address range
 system.cpu = TimingSimpleCPU()
 
 # Create an L1 instruction and data cache
-system.cpu.icache = Cache(size='128kB', assoc=8, tag_latency=0,
+system.cpu.icache = Cache(size='128kB', assoc=4, tag_latency=0,
         data_latency=2, response_latency=1, mshrs=4, tgts_per_mshr=10)
-system.cpu.dcache = Cache(size='128kB', assoc=8, tag_latency=2,
-        data_latency=10,response_latency=1, mshrs=10, tgts_per_mshr=10)
+system.cpu.dcache = Cache(size='128kB', assoc=4, tag_latency=2,
+        data_latency=20,response_latency=1, mshrs=10, tgts_per_mshr=10)
 
 # Connect the instruction and data caches to the CPU
 system.cpu.icache_port = system.cpu.icache.cpu_side
@@ -56,12 +56,12 @@ system.cpu.createInterruptController()
 # Connect the system up to the membus
 system.system_port = system.membus.slave
 
-system.mem_delay = SimpleMemDelay(read_req='3.191ns', write_req='11.151ns')
+system.mem_delay = SimpleMemDelay(read_req='3.511ns', write_req='13.026ns')
 
 system.membus.master = system.mem_delay.slave
 
 # Create a DDR3 memory controller
-system.mem_ctrl = SimpleMemory(latency='0ns', bandwidth='30.668GB/s')
+system.mem_ctrl = SimpleMemory(latency='0ns', bandwidth='30.759GB/s')
 system.mem_ctrl.range = system.mem_ranges[0]
 system.mem_ctrl.port = system.mem_delay.master
 

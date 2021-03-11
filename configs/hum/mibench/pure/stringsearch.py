@@ -36,7 +36,7 @@ system.cpu.dcache_port = system.ctrl.cpu_side
 system.cpu.createInterruptController()
 
 # Create SimpleMemDelay object for simulating different delay
-system.mem_delay = SimpleMemDelay(read_req = '3.191ns', write_req = '11.151ns')
+system.mem_delay = SimpleMemDelay(read_req = '3.511ns', write_req = '13.026ns')
 
 # Connect SimpleMemDelay to mem_port of ctrl
 system.ctrl.mem_side = system.mem_delay.slave
@@ -45,7 +45,7 @@ system.ctrl.mem_side = system.mem_delay.slave
 system.system_port = system.ctrl.cpu_side
 
 # Create two SimpleMemory objects to simulate SRAM and STT-RAM
-system.memories = [SimpleMemory(latency='0ns', bandwidth='30.668GB/s')]
+system.memories = [SimpleMemory(latency='0ns', bandwidth='30.759GB/s')]
 
 # Connect SimpleMemory to SimpleMemDelay
 system.memories[0].range = system.mem_ranges[0]

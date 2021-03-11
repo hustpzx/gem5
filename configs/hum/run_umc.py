@@ -64,8 +64,8 @@ system.memories[1].port = system.sram_delay.master
 
 
 process = Process()
-#process.cmd = ['tests/test-progs/hello/bin/arm/linux/hello']
-process.cmd = ['tests/mibench/seq_test']
+process.cmd = ['tests/test-progs/hello/bin/arm/linux/hello']
+#process.cmd = ['tests/mibench/seq_test']
 system.cpu.workload = process
 system.cpu.createThreads()
 
