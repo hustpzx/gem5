@@ -11,5 +11,6 @@ class UMController(ClockedObject):
 
     nearmem = Param.AddrRange("The size of near/fast memory ")
     farmem = Param.AddrRange("The size of far/slow memory")
+    bkpmem = Param.AddrRange("The size of backup memory")
     system = Param.System(Parent.any,
             "The system this umcontroller is part of")

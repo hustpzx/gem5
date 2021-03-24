@@ -5,3 +5,6 @@ SimObject('UMController.py')
 Source('umcontroller.cc')
 
 DebugFlag('UMController',"For debugging the UMController.")
+DebugFlag('STATS', "For collecting statistics data")
+DebugFlag('MemStatus', "For debugging memory status controller")
+DebugFlag('ChipMnt', "For debugging chip controller")

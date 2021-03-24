@@ -5,17 +5,33 @@
 #include "debug/UMController.hh"
 
 //#include "debug/TEST.hh"
-
+#include "debug/ChipMnt.hh"
+#include "debug/MemStatus.hh"
+#include "debug/STATS.hh"
 
 #define UMC_REQ_EXTRADATA 0xaaaa
+#define INTERVAL 1000000000 // 10 0000 0000  for statistic, every 10 mins
+
+// define the memory load status
+#define LOW_LOAD 0
+#define MIDDLE_LOAD 1
+#define HIGH_LOAD 2
+
+// define the threshold of memory IO
+#define HIGH_THRESHOLD  0.6
+#define LOW_THRESHOLD   0.25
+
+#define IOPEAK  140000
+#define IOBASE  60000
 
 UMController::UMController(UMControllerParams *params) :
     ClockedObject(params),
     system(params->system),
     blocked(false), waitingPortId(-1),
     originalPacket(nullptr), pagePktNum(0),
-    nearMem(params->nearmem), farMem(params->farmem),
-    BLK_SIZE(1024), hotpos(0), tag(false)
+    nearMem(params->nearmem), farMem(params->farmem), bkpMem(params->bkpmem),
+    BLK_SIZE(1024), hotpos(0), tag(false),
+    ioCntr(0), startTick(0), lastStatus(2),chipNum(4),strategy(0)
 {
     /// Since the CPU and memory side ports are a vector of ports, create an
     /// instance of the CPUSidePort for each connection. This member
@@ -42,6 +58,13 @@ UMController::UMController(UMControllerParams *params) :
 
     hotCounter.resize((ratio+1),0);
 
+    chipStatus = new bool[chipNum];
+    for (int i=0; i<chipNum; i++){
+        chipStatus[i] = 1;
+    }
+
+    chipRmpsNum = new uint64_t[chipNum]();
+    chipActNum = new uint64_t[chipNum]();
 }
 
 Port&
@@ -198,6 +221,7 @@ UMController::handleRequest(PacketPtr pkt, int port_id)
     }
     DPRINTF(UMController,"FM address: %#x-%#x\n",farMem.start(),farMem.end());
     DPRINTF(UMController,"NM address:%#x-%#x\n",nearMem.start(),nearMem.end());
+    DPRINTF(UMController,"BKP address:%#x-%#x\n",bkpMem.start(),bkpMem.end());
     */
     // We should block this object waiting for the response
     blocked = true;
@@ -206,10 +230,42 @@ UMController::handleRequest(PacketPtr pkt, int port_id)
     assert(waitingPortId == -1);
     waitingPortId = port_id;
 
+    Tick nowTick = curTick();
+    if (nowTick - startTick < INTERVAL){
+        if ((pkt->isRead() || pkt->isWrite())
+            && !(pkt->req->isInstFetch())){
+            ioCntr++;
+        }
+    }else{
+        //DPRINTF(STATS, "%d\n", ioCntr);
+        // get current memory load status and compare
+
+        float load = (ioCntr-IOBASE) / (IOPEAK-IOBASE);
+        int status = getStatus(load);
+
+        if (status != lastStatus){
+            DPRINTF(MemStatus, "load=%6.3f, newStatus = %d\n",load, status);
+            changeStatus(status);
+        }
+
+        // Reset chip statistics(rmps & act)
+        for (int i=0; i<chipNum; i++){
+            chipRmpsNum[i] = 0;
+            chipActNum[i] = 0;
+        }
+
+        startTick = nowTick;
+        ioCntr = 0;
+    }
+
     Addr laddr = pkt->getAddr();
     Addr block_addr = pkt->getBlockAddr(BLK_SIZE);
     Addr offset = pkt->getOffset(BLK_SIZE);
     unsigned size = pkt->getSize();
+
+    if (bkpMem.contains(laddr)){
+        DPRINTF(STATS,"ERROR: bkpmem is used!\n");
+    }
 
     // if this req spans multi-pages.
     unsigned length = size + offset;
@@ -227,8 +283,8 @@ UMController::handleRequest(PacketPtr pkt, int port_id)
             originalPacket = pkt;
             pagePktNum = page_num;
         }
-        DPRINTF(UMController, "Got a %d-page request from %#x to %#x\n",
-                page_num, laddr, laddr+size);
+        //DPRINTF(UMController, "Got a %d-page request from %#x to %#x\n",
+        //        page_num, laddr, laddr+size);
         for (int i = 0; i < page_num; i++) {
             // Create new pkt for each page
             PacketPtr new_pkt = new Packet(pkt->req, pkt->cmd);
@@ -257,8 +313,8 @@ UMController::handleRequest(PacketPtr pkt, int port_id)
                 new_pkt->setData(data);
             }
             // single page handler
-            DPRINTF(UMController, "The %dth-page: %#x - %#x\n",
-             i, new_pkt->getAddr(), new_pkt->getAddr() + new_pkt->getSize());
+            //DPRINTF(UMController, "The %dth-page: %#x - %#x\n",
+            // i, new_pkt->getAddr(), new_pkt->getAddr() + new_pkt->getSize());
             handlePageRequest(new_pkt);
         }
     } else {
@@ -282,6 +338,9 @@ UMController::handlePageRequest(PacketPtr pkt)
     int index;
     uint64_t rmp_entry;
 
+    int chipSize = (nearMem.size() / BLK_SIZE) / chipNum;
+    int chipNo = -1;
+
     // judge this addr belongs to NM or FM
     if (farMem.contains(addr)) {
         // calc the page number and lookup remappingTable
@@ -289,240 +348,445 @@ UMController::handlePageRequest(PacketPtr pkt)
         index = page_num % (nearMem.size() / BLK_SIZE);
         curpos = page_num / (nearMem.size() / BLK_SIZE) + 1;
 
-        rmp_entry = remappingTable[index];
-        // TODO: should the NM_addr plus FM addr range? we should test
-        // Solved: We confirmed that the NM addr is in its address range which
-        // means it need to plus the nearMem.start()
-        NM_block_addr = index * BLK_SIZE + nearMem.start();
-        NM_addr = NM_block_addr + pkt->getOffset(BLK_SIZE);
+        chipNo = index / chipSize;
+        if (chipStatus[chipNo] == 0){
+            // chip closed, all requests hit FM
+            memPorts[0].sendPacket(pkt);
 
-        // Extract hotpos, tag, and counter info
-        // TODO: we should use ratio to calc the length of hotpos and
-        // hotCounter, now we just assume ratio = 4
-        /**
-         * build a parse function for the extraction process
-        hotpos = bits(rmp_entry, 31, 29);
-        tag = bits(rmp_entry, 28);
-        hotCounter[4] = bits(rmp_entry, 19, 16);
-        hotCounter[3] = bits(rmp_entry, 15, 12);
-        hotCounter[2] = bits(rmp_emtry, 11, 8);
-        hotCounter[1] = bits(rmp_entry, 7, 4);
-        hotCounter[0] = bits(rmp_entry, 3, 0);
+            // update chip act num
+            chipActNum[chipNo]++;
 
-        if (pkt->cmd == MemCmd::WriteReq){
-            DPRINTF(UMController, "Writing data: %s\n",
-                    pkt->getPtr<uint8_t>());
-        } */
+        } else{
 
-        parseRmpEntry(rmp_entry);
-        /*
-        if (pkt->isWrite()){
-            DPRINTF(TEST, "FM: index=%d, curpos=%d, hotpos=%d,"\
-                " tag=%d,hotCntr=%d\n", index, curpos, hotpos, tag,\
-                hotCounter[curpos-1]);
-        }
-        */
+            rmp_entry = remappingTable[index];
+            // TODO: should the NM_addr plus FM addr range? we should test
+            // Solved: We confirmed that the NM addr is in its address range
+            // which means it need to plus the nearMem.start()
+            NM_block_addr = index * BLK_SIZE + nearMem.start();
+            NM_addr = NM_block_addr + pkt->getOffset(BLK_SIZE);
 
-        if (curpos == hotpos){
+
+            // Extract hotpos, tag, and counter info
+            // TODO: we should use ratio to calc the length of hotpos and
+            // hotCounter, now we just assume ratio = 4
+            /**
+             * build a parse function for the extraction process
+            hotpos = bits(rmp_entry, 31, 29);
+            tag = bits(rmp_entry, 28);
+            hotCounter[4] = bits(rmp_entry, 19, 16);
+            hotCounter[3] = bits(rmp_entry, 15, 12);
+            hotCounter[2] = bits(rmp_emtry, 11, 8);
+            hotCounter[1] = bits(rmp_entry, 7, 4);
+            hotCounter[0] = bits(rmp_entry, 3, 0);
+
+            if (pkt->cmd == MemCmd::WriteReq){
+                DPRINTF(UMController, "Writing data: %s\n",
+                        pkt->getPtr<uint8_t>());
+            } */
+
+            parseRmpEntry(rmp_entry);
+            /*
+            if (pkt->isWrite()){
+                DPRINTF(TEST, "FM: index=%d, curpos=%d, hotpos=%d,"\
+                    " tag=%d,hotCntr=%d\n", index, curpos, hotpos, tag,\
+                    hotCounter[curpos-1]);
+            }
+            */
+
+            if (curpos == hotpos){
             // this page has already built a remapping
             // we just need to forward the req to NM port
-    /*        DPRINTF(UMController, "case1:remapping exists FM(%#x-%#x) "\
+            /*DPRINTF(UMController, "case1:remapping exists FM(%#x-%#x) "\
             ", forward FM request to NM\n",block_addr,block_addr+BLK_SIZE);
             */
             //DPRINTF(TEST, "case1\n");
-            pkt->setAddr(NM_addr);
+                pkt->setAddr(NM_addr);
 
             // we assume port 1 connect to NM, port0 connects to FM
-            memPorts[1].sendPacket(pkt);
+                memPorts[1].sendPacket(pkt);
             // update the hotCounter, if remapping exists, both read and write
             // will increase the hotCntr.
-            hotCounterInc(rmp_entry, curpos-1);
-    //        DPRINTF(UMController, "hotCntr[%d]=%d, page(%#x-%#x)\n",curpos-1,
-    //            hotCounter[curpos-1], block_addr, block_addr+BLK_SIZE);
-            remappingTable[index] = rmp_entry;
-        } else {
-            // no remapping relation between two pages
-            if (hotpos==0){
-                // hotpos=0, means the NM page hasn't beed used
-                // if curpos hotCntr > 4 which means the curpage was
-                // accessed at least 5 times, so curpos could migrate to
-                // hotpage
                 hotCounterInc(rmp_entry, curpos-1);
-                if (hotCounter[curpos-1] < 7){
+            //DPRINTF(UMController, "hotCntr[%d]=%d, page(%#x-%#x)\n",curpos-1,
+            //hotCounter[curpos-1], block_addr, block_addr+BLK_SIZE);
+                remappingTable[index] = rmp_entry;
+
+            // update chip act num
+                chipActNum[chipNo]++;
+            } else {
+            // no remapping relation between two pages
+                if (hotpos==0){
+                    // hotpos=0, means the NM page hasn't beed used
+                    // if curpos hotCntr > 4 which means the curpage was
+                    // accessed at least 5 times, so curpos could migrate to
+                    // hotpage
+                    hotCounterInc(rmp_entry, curpos-1);
+                    if (hotCounter[curpos-1] < 7){
                     //DPRINTF(TEST, "case3\n");
-                /*    DPRINTF(UMController, "case3: hotCntr[%d]=%d <5,"\
+                    /* DPRINTF(UMController, "case3: hotCntr[%d]=%d <5,"\
                     " don't remap this req:%s\n", curpos-1, \
                     hotCounter[curpos-1], pkt->print()); */
-                    memPorts[0].sendPacket(pkt);
-                }else{
+                        memPorts[0].sendPacket(pkt);
+                    }else{
                     // hotCntr>4, now we think this page can occupy the
                     // hotpage.
                     //DPRINTF(TEST, "case4\n");
-                    DPRINTF(UMController, "case4: hotCntr[%d]=%d >=4, now"\
-                    " we need a page-swapping.\n",curpos-1,
-                        hotCounter[curpos-1]);
+                    //DPRINTF(UMController, "case4: hotCntr[%d]=%d >=4, now"
+                    //" we need a page-swapping.\n",curpos-1,
+                    //    hotCounter[curpos-1]);
+                        // 1. make a read request to read out curpage
+                        RequestPtr rd_req = std::make_shared<Request>(
+                            block_addr, BLK_SIZE, 0, 0);
+                        // we use _extraData to handle response(should we?)
+                        // rd_req->setExtraData(UMC_REQ_EXTRADATA);
+                        PacketPtr rd_pkt = new Packet(rd_req, MemCmd::ReadReq,
+                            BLK_SIZE);
+                        rd_pkt->allocate();
+                        //DPRINTF(UMController, "Read out curpage to migrate "
+                        //    "all page with write-pkt: %s\n",rd_pkt->print());
+                        // Scheme: we stats all UMC-issued requests
+                        // independently and use functional access to complete
+                        // all the request
+                        // to avoid complicated events scheduling.
+                        memPorts[0].sendFunctional(rd_pkt);
 
-                    // 1. make a read request to read out curpage
-                    RequestPtr rd_req = std::make_shared<Request>(
-                        block_addr, BLK_SIZE, 0, 0);
-                    // we use _extraData to handle response(should we?)
-                    // rd_req->setExtraData(UMC_REQ_EXTRADATA);
-                    PacketPtr rd_pkt = new Packet(rd_req, MemCmd::ReadReq,
-                        BLK_SIZE);
-                    rd_pkt->allocate();
-                    //DPRINTF(UMController, "Read out curpage to migrate "
-                    //    "all page with write-pkt: %s\n",rd_pkt->print());
-                    // Scheme: we stats all UMC-issued requests independently
-                    // and use functional access to complete all the request
-                    // to avoid complicated events scheduling.
-                    memPorts[0].sendFunctional(rd_pkt);
+                        // 2. ensure we get the read result and update stats
+                        assert(rd_pkt->isResponse());
+                        fmReadNum++;
 
-                    // 2. ensure we get the read result and update stats
-                    assert(rd_pkt->isResponse());
-                    fmReadNum++;
-
-                    // 3. write the curpage to hotpos
-                    RequestPtr wt_req = std::make_shared<Request>(
-                        NM_block_addr, BLK_SIZE, 0, 0);
-                    PacketPtr wt_pkt = new Packet(wt_req, MemCmd::WriteReq,
-                        BLK_SIZE);
-                    wt_pkt->allocate();
-                    wt_pkt->setData(rd_pkt->getPtr<uint8_t>());
-                    memPorts[1].sendFunctional(wt_pkt);
-
-                    assert(wt_pkt->isResponse());
-                    nmWriteNum++;
-
-                    delete rd_pkt;
-                    delete wt_pkt;
-
-                    pkt->setAddr(NM_addr);
-                    memPorts[1].sendPacket(pkt);
-                    // update the hotpos to curpos
-                    replaceBits(rmp_entry, 63, 64-(log(ratio)/log(2)+1),
-                            curpos);
-                    // update the hotCounter
-                    // since hotpage is occupied first time, reset all counter
-                    // to avoid page-swapping shake
-                    hotCounterReset(rmp_entry, curpos-1);
-                    migrationNum++;
-                }
-
-                remappingTable[index] = rmp_entry;
-
-            } else {
-                // hotpos!=0, means the NM pages has beed used
-                // update and compare the hotCounter
-                hotCounterInc(rmp_entry, curpos-1);
-                hotCounterDec(rmp_entry, hotpos-1);
-                if (hotCounter[curpos-1] <= hotCounter[hotpos-1]) {
-                    // failed to get the hot page
-                    // just forward the req to FM port
-                    //DPRINTF(TEST, "case5\n");
-                    memPorts[0].sendPacket(pkt);
-
-                    remappingTable[index] = rmp_entry;
-                } else {
-                    // now curpos page is hotter, we should do the page-
-                    // swapping process
-                    //DPRINTF(TEST, "case6 \n");
-                    // 1. create a new read request to get the curpage
-                    RequestPtr rd_cur_req = std::make_shared<Request>(
-                        block_addr, BLK_SIZE, 0, 0);
-                    //rd_cur_req->setExtraData(UMC_REQ_EXTRADATA);
-                    PacketPtr rd_cur_pkt = new Packet(rd_cur_req,
-                    MemCmd::ReadReq, BLK_SIZE);
-                    rd_cur_pkt->allocate();
-                    memPorts[0].sendFunctional(rd_cur_pkt);
-
-                    assert(rd_cur_pkt->isResponse());
-                    fmReadNum++;
-
-                    Addr hotposFMBlockAddr = (hotpos-1) * nearMem.size()
-                                + index * BLK_SIZE + farMem.start();
-                    if (tag == 0){
-                        //DPRINTF(TEST, "case7\n");
-                        // need to swap hotpage and curpage
-                        // 1. create a new req-pkt pair to read out hotpage
-                        RequestPtr rd_hot_req = std::make_shared<Request>(
+                        // 3. write the curpage to hotpos
+                        RequestPtr wt_req = std::make_shared<Request>(
                             NM_block_addr, BLK_SIZE, 0, 0);
-                        //rd_hot_req->setExtraData(UMC_REQ_EXTRADATA);
-                        PacketPtr rd_hot_pkt = new Packet(rd_hot_req,
-                            MemCmd::ReadReq, BLK_SIZE);
-                        rd_hot_pkt->allocate();
-                        memPorts[1].sendFunctional(rd_hot_pkt);
+                        PacketPtr wt_pkt = new Packet(wt_req, MemCmd::WriteReq,
+                            BLK_SIZE);
+                        wt_pkt->allocate();
+                        wt_pkt->setData(rd_pkt->getPtr<uint8_t>());
+                        memPorts[1].sendFunctional(wt_pkt);
 
-                        assert(rd_hot_pkt->isResponse());
-                        nmReadNum++;
+                        assert(wt_pkt->isResponse());
+                        nmWriteNum++;
 
-                        // 2. writeback the hotpage to original position
-                        RequestPtr wb_req = std::make_shared<Request>(
-                                hotposFMBlockAddr, BLK_SIZE, 0 ,0);
-                        //wb_req->setExtraData(UMC_REQ_EXTRADATA);
-                        PacketPtr wb_pkt = new Packet(wb_req,
-                                MemCmd::WriteReq, BLK_SIZE);
-                        wb_pkt->allocate();
-                        wb_pkt->setData(rd_hot_pkt->getPtr<uint8_t>());
-                        memPorts[0].sendFunctional(wb_pkt);
+                        delete rd_pkt;
+                        delete wt_pkt;
 
-                        assert(wb_pkt->isResponse());
-                        fmWriteNum++;
-                        delete rd_hot_pkt;
-                        delete wb_pkt;
+                        pkt->setAddr(NM_addr);
+                        memPorts[1].sendPacket(pkt);
+                        // update the hotpos to curpos
+                        replaceBits(rmp_entry, 63, 64-(log(ratio)/log(2)+1),
+                                curpos);
+                        // update the hotCounter
+                        // since hotpage is occupied first time, reset all
+                        // counter to avoid page-swapping shake
+                        hotCounterReset(rmp_entry, curpos-1);
+                        migrationNum++;
 
-                        // 2. migrate the curpos page to NM
-                        // this part is same for bellow cases, we leave it
-                        // to outer if-else later
-                    } else{
-                        // tag=1, means NM page had a rmp and used in its
-                        // logic addres, the swapping process may involve
-                        // 3 pages
-                        if (hotpos == ratio+1){
-                            //DPRINTF(TEST, "case8\n");
-                            // hotpage is the NM page in original position
-                            // now we just need to swap curpage and hotpage
-                            // 1. read out curpage(done this before)
-                            // 2. read out hotpage from NM
-                            RequestPtr rd_hot_req =
-                                std::make_shared<Request>(
-                                    NM_block_addr, BLK_SIZE, 0, 0);
+                        chipRmpsNum[chipNo]++;
+                        chipActNum[chipNo]++;
+                    }
+                    remappingTable[index] = rmp_entry;
+
+                } else {
+                    // hotpos!=0, means the NM pages has beed used
+                    // update and compare the hotCounter
+                    hotCounterInc(rmp_entry, curpos-1);
+                    hotCounterDec(rmp_entry, hotpos-1);
+                    if (hotCounter[curpos-1] <= hotCounter[hotpos-1]) {
+                        // failed to get the hot page
+                        // just forward the req to FM port
+                        //DPRINTF(TEST, "case5\n");
+                        memPorts[0].sendPacket(pkt);
+
+                        remappingTable[index] = rmp_entry;
+                    } else {
+                        // now curpos page is hotter, we should do the page-
+                        // swapping process
+                        //DPRINTF(TEST, "case6 \n");
+
+                        // 1. create a new read request to get the curpage
+                        RequestPtr rd_cur_req = std::make_shared<Request>(
+                            block_addr, BLK_SIZE, 0, 0);
+                        //rd_cur_req->setExtraData(UMC_REQ_EXTRADATA);
+                        PacketPtr rd_cur_pkt = new Packet(rd_cur_req,
+                        MemCmd::ReadReq, BLK_SIZE);
+                        rd_cur_pkt->allocate();
+                        memPorts[0].sendFunctional(rd_cur_pkt);
+
+                        assert(rd_cur_pkt->isResponse());
+                        fmReadNum++;
+
+                        Addr hotposFMBlockAddr = (hotpos-1) * nearMem.size()
+                                    + index * BLK_SIZE + farMem.start();
+                        if (tag == 0){
+                            //DPRINTF(TEST, "case7\n");
+                            // need to swap hotpage and curpage
+                            // 1. create a new req-pkt pair to read out hotpage
+                            RequestPtr rd_hot_req = std::make_shared<Request>(
+                                NM_block_addr, BLK_SIZE, 0, 0);
                             //rd_hot_req->setExtraData(UMC_REQ_EXTRADATA);
                             PacketPtr rd_hot_pkt = new Packet(rd_hot_req,
-                                    MemCmd::ReadReq, BLK_SIZE);
+                                MemCmd::ReadReq, BLK_SIZE);
                             rd_hot_pkt->allocate();
                             memPorts[1].sendFunctional(rd_hot_pkt);
 
                             assert(rd_hot_pkt->isResponse());
                             nmReadNum++;
 
-                            // 3. write the hotpage to curpage
-                            RequestPtr wb_hot_req =
-                                std::make_shared<Request>(
-                                    block_addr, BLK_SIZE, 0, 0);
-                            //wb_hot_req->setExtraData(UMC_REQ_EXTRADATA);
-                            PacketPtr wb_hot_pkt = new Packet(wb_hot_req,
+                            // 2. writeback the hotpage to original position
+                            RequestPtr wb_req = std::make_shared<Request>(
+                                    hotposFMBlockAddr, BLK_SIZE, 0 ,0);
+                            //wb_req->setExtraData(UMC_REQ_EXTRADATA);
+                            PacketPtr wb_pkt = new Packet(wb_req,
                                     MemCmd::WriteReq, BLK_SIZE);
-                            wb_hot_pkt->allocate();
-                            wb_hot_pkt->setData(
-                                    rd_hot_pkt->getPtr<uint8_t>());
-                            memPorts[0].sendFunctional(wb_hot_pkt);
+                            wb_pkt->allocate();
+                            wb_pkt->setData(rd_hot_pkt->getPtr<uint8_t>());
+                            memPorts[0].sendFunctional(wb_pkt);
 
-                            assert(wb_hot_pkt->isResponse());
+                            assert(wb_pkt->isResponse());
                             fmWriteNum++;
                             delete rd_hot_pkt;
-                            delete wb_hot_pkt;
+                            delete wb_pkt;
 
-                            // 4. migrate the curpage to NM
+                            chipActNum[chipNo]++
+                            // 2. migrate the curpos page to NM
+                            // this part is same for bellow cases, we leave it
+                            // to outer if-else later
                         } else{
-                            // hotpos!=5, tag =1, the swapping process
-                            // will involve 3 pages in this case
-                            // 1. read out curpage(done this before)
-                            // 2. migrate the hotpos-indicated FM page to
-                            // curpos FM
-                            // 2.1 read out hotpos-indicated FM page(tagpage)
-                            //DPRINTF(TEST, "case9\n");
-                            RequestPtr rd_tag_req = std::make_shared<
-                                Request>(hotposFMBlockAddr, BLK_SIZE, 0, 0);
+                            // tag=1, means NM page had a rmp and used in its
+                            // logic addres, the swapping process may involve
+                            // 3 pages
+                            if (hotpos == ratio+1){
+                                //DPRINTF(TEST, "case8\n");
+                                // hotpage is the NM page in original position
+                                // now we just need to swap curpage and hotpage
+                                // 1. read out curpage(done this before)
+                                // 2. read out hotpage from NM
+                                RequestPtr rd_hot_req =
+                                    std::make_shared<Request>(
+                                        NM_block_addr, BLK_SIZE, 0, 0);
+                                //rd_hot_req->setExtraData(UMC_REQ_EXTRADATA);
+                                PacketPtr rd_hot_pkt = new Packet(rd_hot_req,
+                                        MemCmd::ReadReq, BLK_SIZE);
+                                rd_hot_pkt->allocate();
+                                memPorts[1].sendFunctional(rd_hot_pkt);
+
+                                assert(rd_hot_pkt->isResponse());
+                                nmReadNum++;
+
+                                // 3. write the hotpage to curpage
+                                RequestPtr wb_hot_req =
+                                    std::make_shared<Request>(
+                                        block_addr, BLK_SIZE, 0, 0);
+                                //wb_hot_req->setExtraData(UMC_REQ_EXTRADATA);
+                                PacketPtr wb_hot_pkt = new Packet(wb_hot_req,
+                                        MemCmd::WriteReq, BLK_SIZE);
+                                wb_hot_pkt->allocate();
+                                wb_hot_pkt->setData(
+                                        rd_hot_pkt->getPtr<uint8_t>());
+                                memPorts[0].sendFunctional(wb_hot_pkt);
+
+                                assert(wb_hot_pkt->isResponse());
+                                fmWriteNum++;
+                                delete rd_hot_pkt;
+                                delete wb_hot_pkt;
+
+                                chipRmpsNum[chipNo]++;
+                                chipActNum[chipNo]++;
+                                // 4. migrate the curpage to NM
+                            } else{
+                                // hotpos!=5, tag =1, the swapping process
+                                // will involve 3 pages in this case
+                                // 1. read out curpage(done this before)
+                                // 2. migrate the hotpos-indicated FM page to
+                                // curpos FM
+                                // 2.1 read out hotpos-indicated FM page
+                                //DPRINTF(TEST, "case9\n");
+                                RequestPtr rd_tag_req = std::make_shared<
+                                    Request>(hotposFMBlockAddr, BLK_SIZE,0,0);
+                                PacketPtr rd_tag_pkt = new Packet(rd_tag_req,
+                                    MemCmd::ReadReq, BLK_SIZE);
+                                rd_tag_pkt->allocate();
+                                memPorts[0].sendFunctional(rd_tag_pkt);
+
+                                assert(rd_tag_pkt->isResponse());
+                                fmReadNum++;
+                                // 2.2 write tagpage to curpos
+                                RequestPtr wt_tag_req = std::make_shared<
+                                    Request>(block_addr, BLK_SIZE, 0, 0);
+                                PacketPtr wt_tag_pkt = new Packet(wt_tag_req,
+                                    MemCmd::WriteReq, BLK_SIZE);
+                                wt_tag_pkt->allocate();
+                                wt_tag_pkt->setData(
+                                        rd_tag_pkt->getPtr<uint8_t>());
+                                memPorts[0].sendFunctional(wt_tag_pkt);
+
+                                assert(wt_tag_pkt->isResponse());
+                                fmWriteNum++;
+
+                                delete rd_tag_pkt;
+                                delete wt_tag_pkt;
+
+                                // 3. migrate the hotpage to original position
+                                // 3.1 read hotpage out from NM
+                                RequestPtr rd_hot_req = std::make_shared<
+                                    Request>(NM_block_addr, BLK_SIZE, 0, 0);
+                                //rd_hot_req->setExtraData(UMC_REQ_EXTRADATA);
+                                PacketPtr rd_hot_pkt = new Packet(rd_hot_req,
+                                        MemCmd::ReadReq, BLK_SIZE);
+                                rd_hot_pkt->allocate();
+                                memPorts[1].sendFunctional(rd_hot_pkt);
+
+                                assert(rd_hot_pkt->isResponse());
+                                nmReadNum++;
+                                // 3.2 write hotpage to original positon
+                                RequestPtr wb_hot_req = std::make_shared<
+                                    Request>(hotposFMBlockAddr, BLK_SIZE,0,0);
+                                PacketPtr wb_hot_pkt = new Packet(wb_hot_req,
+                                    MemCmd::WriteReq, BLK_SIZE);
+                                wb_hot_pkt->allocate();
+                                wb_hot_pkt->setData(
+                                        rd_hot_pkt->getPtr<uint8_t>());
+                                memPorts[0].sendFunctional(wb_hot_pkt);
+
+                                assert(wb_hot_pkt->isResponse());
+                                fmWriteNum++;
+
+                                delete rd_hot_pkt;
+                                delete wb_hot_pkt;
+
+                                chipActNum[chipNo]++;
+                                // 4. migrate the curpage to NM
+                            } // end if hotpos==5
+                        } // end if tag==0
+                        // 4. now we should impl the curpage migration
+                        // Try: we first finish the page-swapping, then write
+                        // the pkt to new positon
+                        // 4.1 write curpage to hotpos
+                        RequestPtr mg_req = std::make_shared<Request>(
+                            NM_block_addr, BLK_SIZE, 0, 0);
+                        PacketPtr mg_pkt = new Packet(mg_req, MemCmd::WriteReq,
+                            BLK_SIZE);
+                        mg_pkt->allocate();
+                        mg_pkt->setData(rd_cur_pkt->getPtr<uint8_t>());
+                        memPorts[1].sendFunctional(mg_pkt);
+
+                        assert(mg_pkt->isResponse());
+                        nmWriteNum++;
+                        delete rd_cur_pkt;
+                        delete mg_pkt;
+
+                        pkt->setAddr(NM_addr);
+                        memPorts[1].sendPacket(pkt);
+
+                        migrationNum++;
+                        //update hotpos
+                        replaceBits(rmp_entry, 63, 64-(log(ratio)/log(2)+1),
+                            curpos);
+                        hotCounterReset(rmp_entry, curpos-1);
+                        remappingTable[index] = rmp_entry;
+
+                    } // end if counter compare
+                } // end if hospos==0
+            } // end if curpos==hotpos
+            /* DPRINTF(UMController, "Req done: hotpos=%d, tag=%d, hotCntr("\
+            "%d,%d,%d,%d,%d)\n",hotpos, tag, hotCounter[0],hotCounter[1],
+            hotCounter[2],hotCounter[3],hotCounter[4]); */
+        } // end if chipStatus ==0
+    } else {
+        // this pkt should be in NM address range
+        assert(nearMem.contains(addr));
+
+        // calc index and lookup remapping table
+        index = (addr - nearMem.start()) / BLK_SIZE;
+
+        chipNo = index / chipSize;
+        if (chipStatus[chipNo] == 0){
+            // chip closed, all requests original to NM migrate to bkpMem
+            Addr BKPaddr = addr - nearMem.start() + bkpMem.start();
+            pkt->setAddr(BKPaddr);
+            memPorts[2].sendPacket(pkt);
+            chipActNum[chipNo]++;
+        }else{
+
+            curpos = ratio + 1;
+            rmp_entry = remappingTable[index];
+
+            NM_block_addr = pkt->getBlockAddr(BLK_SIZE);
+            NM_addr = addr;
+
+            // extract info
+            parseRmpEntry(rmp_entry);
+
+            if (hotpos==0){
+                // the NM page hasn't been used, we can use it
+                //DPRINTF(TEST, "case10\n");
+                memPorts[1].sendPacket(pkt);
+                // update hotpos, tag and counter
+                replaceBits(rmp_entry, 63, 64-(log(ratio)/log(2)+1), curpos);
+                replaceBits(rmp_entry, 63-(log(ratio)/log(2)+1), 1);
+                // first time occupied by a req
+                hotCounterReset(rmp_entry, curpos-1);
+
+                remappingTable[index] = rmp_entry;
+
+                chipRmpsNum[chipNo]++;
+                chipActNum[chipNo]++;
+            } else {
+                // hotpos!=0, this NM page has beed used
+                if (hotpos==5){
+                    // this NM page used itself
+                    // pkt->setAddr(NM_addr);
+                    //DPRINTF(TEST, "case11\n");
+                    memPorts[1].sendPacket(pkt);
+                    //update counter
+                    hotCounterInc(rmp_entry, curpos-1);
+
+                    remappingTable[index] = rmp_entry;
+                    chipActNum[chipNo]++;
+
+                } else{
+                    // hotpos!=5 or 0, means this page was used by FM page
+                    Addr FM_addr = (hotpos-1) * nearMem.size() +
+                        (NM_addr-nearMem.start());
+                    Addr FM_block_addr = (hotpos-1)*nearMem.size() +
+                        index * BLK_SIZE;
+                    if (tag==0){
+                        // NM logical addr hasn't been used
+
+                        if (pkt->isRead()){
+                            // ERROR: try to read nonsense data
+                            panic("Error: try to read nonsense data");
+                        } else if (pkt->isWrite()){
+                            pkt->setAddr(FM_addr);
+                            //DPRINTF(TEST, "case12\n");
+                            memPorts[0].sendPacket(pkt);
+                            // update tag=1, and counter
+                            replaceBits(rmp_entry,63-(log(ratio)/log(2)+1),1);
+                            hotCounterInc(rmp_entry, curpos-1);
+                            hotCounterDec(rmp_entry, hotpos-1);
+
+                            remappingTable[index] = rmp_entry;
+
+                        } else{
+                            panic("unknown pkt type in NM addr");
+                        } // end if pkt->isRead()
+                    } else {
+                        // tag=1, means logic addr was used, may need to swap
+                        // update and compare counter
+                        hotCounterInc(rmp_entry, curpos-1);
+                        hotCounterDec(rmp_entry, hotpos-1);
+                        if (hotCounter[curpos-1] <= hotCounter[hotpos-1]){
+                            // can't get NM hotpage, forward req to FM page
+                            //DPRINTF(TEST, "case13\n");
+                            pkt->setAddr(FM_addr);
+                            memPorts[0].sendPacket(pkt);
+                            //update rmp counter
+                            remappingTable[index] = rmp_entry;
+                        } else{
+                            //DPRINTF(TEST, "case14\n");
+                            // now we need to swap pages
+                            // 1. read out hotpos-indicated FM page(tagpage)
+                            RequestPtr rd_tag_req = std::make_shared<Request>(
+                                FM_block_addr, BLK_SIZE, 0, 0);
                             PacketPtr rd_tag_pkt = new Packet(rd_tag_req,
                                 MemCmd::ReadReq, BLK_SIZE);
                             rd_tag_pkt->allocate();
@@ -530,228 +794,60 @@ UMController::handlePageRequest(PacketPtr pkt)
 
                             assert(rd_tag_pkt->isResponse());
                             fmReadNum++;
-                            // 2.2 write tagpage to curpos
-                            RequestPtr wt_tag_req = std::make_shared<
-                                Request>(block_addr, BLK_SIZE, 0, 0);
-                            PacketPtr wt_tag_pkt = new Packet(wt_tag_req,
-                                MemCmd::WriteReq, BLK_SIZE);
-                            wt_tag_pkt->allocate();
-                            wt_tag_pkt->setData(
-                                    rd_tag_pkt->getPtr<uint8_t>());
-                            memPorts[0].sendFunctional(wt_tag_pkt);
-
-                            assert(wt_tag_pkt->isResponse());
-                            fmWriteNum++;
-
-                            delete rd_tag_pkt;
-                            delete wt_tag_pkt;
-
-                            // 3. migrate the hotpage to original position
-                            // 3.1 read hotpage out from NM
-                            RequestPtr rd_hot_req = std::make_shared<
-                                Request>(NM_block_addr, BLK_SIZE, 0, 0);
-                            //rd_hot_req->setExtraData(UMC_REQ_EXTRADATA);
+                            // 2. read hotpage out from NM
+                            RequestPtr rd_hot_req = std::make_shared<Request>(
+                                NM_block_addr, BLK_SIZE, 0, 0);
                             PacketPtr rd_hot_pkt = new Packet(rd_hot_req,
-                                    MemCmd::ReadReq, BLK_SIZE);
+                                MemCmd::ReadReq, BLK_SIZE);
                             rd_hot_pkt->allocate();
                             memPorts[1].sendFunctional(rd_hot_pkt);
 
                             assert(rd_hot_pkt->isResponse());
                             nmReadNum++;
-                            // 3.2 write hotpage to original positon
-                            RequestPtr wb_hot_req = std::make_shared<
-                                Request>(hotposFMBlockAddr, BLK_SIZE, 0, 0);
+                            // 3. writeback the hotpage to FM addr
+                            RequestPtr wb_hot_req = std::make_shared<Request>(
+                                FM_block_addr, BLK_SIZE, 0, 0);
                             PacketPtr wb_hot_pkt = new Packet(wb_hot_req,
                                 MemCmd::WriteReq, BLK_SIZE);
                             wb_hot_pkt->allocate();
-                            wb_hot_pkt->setData(
-                                    rd_hot_pkt->getPtr<uint8_t>());
+                            wb_hot_pkt->setData(rd_hot_pkt->getPtr<uint8_t>());
                             memPorts[0].sendFunctional(wb_hot_pkt);
 
                             assert(wb_hot_pkt->isResponse());
                             fmWriteNum++;
-
                             delete rd_hot_pkt;
                             delete wb_hot_pkt;
-                            // 4. migrate the curpage to NM
-                        } // end if hotpos==5
-                    } // end if tag==0
-                    // 4. now we should impl the curpage migration
-                    // Try: we first finish the page-swapping, then write
-                    // the pkt to new positon
-                    // 4.1 write curpage to hotpos
-                    RequestPtr mg_req = std::make_shared<Request>(
-                        NM_block_addr, BLK_SIZE, 0, 0);
-                    PacketPtr mg_pkt = new Packet(mg_req, MemCmd::WriteReq,
-                        BLK_SIZE);
-                    mg_pkt->allocate();
-                    mg_pkt->setData(rd_cur_pkt->getPtr<uint8_t>());
-                    memPorts[1].sendFunctional(mg_pkt);
 
-                    assert(mg_pkt->isResponse());
-                    nmWriteNum++;
-                    delete rd_cur_pkt;
-                    delete mg_pkt;
-
-                    pkt->setAddr(NM_addr);
-                    memPorts[1].sendPacket(pkt);
-
-                    migrationNum++;
-                    //update hotpos
-                    replaceBits(rmp_entry, 63, 64-(log(ratio)/log(2)+1),
-                        curpos);
-                    hotCounterReset(rmp_entry, curpos-1);
-                    remappingTable[index] = rmp_entry;
-                } // end if counter compare
-            } // end if hospos==0
-        } // end if curpos==hotpos
-        /* DPRINTF(UMController, "Req done: hotpos=%d, tag=%d, hotCntr("\
-            "%d,%d,%d,%d,%d)\n",hotpos, tag, hotCounter[0],hotCounter[1],
-            hotCounter[2],hotCounter[3],hotCounter[4]); */
-    } else {
-        // this pkt should be in NM address range
-        assert(nearMem.contains(addr));
-
-        // calc index and lookup remapping table
-        index = (addr - nearMem.start()) / BLK_SIZE;
-        curpos = ratio + 1;
-        rmp_entry = remappingTable[index];
-
-        NM_block_addr = pkt->getBlockAddr(BLK_SIZE);
-        NM_addr = addr;
-
-        // extract info
-        parseRmpEntry(rmp_entry);
-        /*
-        DPRINTF(TEST, "NM: index=%d, curpos=%d, hotpos=%d,"\
-                " tag=%d,hotCntr=%d\n", index, curpos, hotpos, tag,
-                hotCounter[hotpos-1]);
-        */
-
-        if (hotpos==0){
-            // the NM page hasn't been used, we can use it
-            //DPRINTF(TEST, "case10\n");
-            memPorts[1].sendPacket(pkt);
-            // update hotpos, tag and counter
-            replaceBits(rmp_entry, 63, 64-(log(ratio)/log(2)+1), curpos);
-            replaceBits(rmp_entry, 63-(log(ratio)/log(2)+1), 1);
-            // first time occupied by a req
-            hotCounterReset(rmp_entry, curpos-1);
-
-            remappingTable[index] = rmp_entry;
-        } else {
-            // hotpos!=0, this NM page has beed used
-            if (hotpos==5){
-                // this NM page used itself
-                // pkt->setAddr(NM_addr);
-                //DPRINTF(TEST, "case11\n");
-                memPorts[1].sendPacket(pkt);
-                //update counter
-                hotCounterInc(rmp_entry, curpos-1);
-
-                remappingTable[index] = rmp_entry;
-            } else{
-                // hotpos!=5 or 0, means this page was used by FM page for rmp
-                Addr FM_addr = (hotpos-1) * nearMem.size() +
-                    (NM_addr-nearMem.start());
-                Addr FM_block_addr = (hotpos-1)*nearMem.size() +
-                        index * BLK_SIZE;
-                if (tag==0){
-                    // NM logical addr hasn't been used
-
-                    if (pkt->isRead()){
-                        // ERROR: try to read nonsense data
-                        panic("Error: try to read nonsense data");
-                    } else if (pkt->isWrite()){
-                        pkt->setAddr(FM_addr);
-                        //DPRINTF(TEST, "case12\n");
-                        memPorts[0].sendPacket(pkt);
-                        // update tag=1, and counter
-                        replaceBits(rmp_entry, 63-(log(ratio)/log(2)+1), 1);
-                        hotCounterInc(rmp_entry, curpos-1);
-                        hotCounterDec(rmp_entry, hotpos-1);
-
-                        remappingTable[index] = rmp_entry;
-                    } else{
-                        panic("unknown pkt type in NM addr");
-                    } // end if pkt->isRead()
-                } else {
-                    // tag=1, means logic addr was used, may need to swap
-                    // update and compare counter
-                    hotCounterInc(rmp_entry, curpos-1);
-                    hotCounterDec(rmp_entry, hotpos-1);
-                    if (hotCounter[curpos-1] <= hotCounter[hotpos-1]){
-                        // can't get NM hotpage, forward req to FM page
-                        //DPRINTF(TEST, "case13\n");
-                        pkt->setAddr(FM_addr);
-                        memPorts[0].sendPacket(pkt);
-                        //update rmp counter
-                        remappingTable[index] = rmp_entry;
-                    } else{
-                        //DPRINTF(TEST, "case14\n");
-                        // now we need to swap pages
-                        // 1. read out hotpos-indicated FM page(tagpage)
-                        RequestPtr rd_tag_req = std::make_shared<Request>(
-                            FM_block_addr, BLK_SIZE, 0, 0);
-                        PacketPtr rd_tag_pkt = new Packet(rd_tag_req,
-                            MemCmd::ReadReq, BLK_SIZE);
-                        rd_tag_pkt->allocate();
-                        memPorts[0].sendFunctional(rd_tag_pkt);
-
-                        assert(rd_tag_pkt->isResponse());
-                        fmReadNum++;
-                        // 2. read hotpage out from NM
-                        RequestPtr rd_hot_req = std::make_shared<Request>(
-                            NM_block_addr, BLK_SIZE, 0, 0);
-                        PacketPtr rd_hot_pkt = new Packet(rd_hot_req,
-                            MemCmd::ReadReq, BLK_SIZE);
-                        rd_hot_pkt->allocate();
-                        memPorts[1].sendFunctional(rd_hot_pkt);
-
-                        assert(rd_hot_pkt->isResponse());
-                        nmReadNum++;
-                        // 3. writeback the hotpage to FM addr
-                        RequestPtr wb_hot_req = std::make_shared<Request>(
-                                FM_block_addr, BLK_SIZE, 0, 0);
-                        PacketPtr wb_hot_pkt = new Packet(wb_hot_req,
+                            // 4. migrate tag page to original positon
+                            RequestPtr mg_tag_req = std::make_shared<Request>(
+                                NM_block_addr, BLK_SIZE, 0, 0);
+                            PacketPtr mg_tag_pkt = new Packet(mg_tag_req,
                                 MemCmd::WriteReq, BLK_SIZE);
-                        wb_hot_pkt->allocate();
-                        wb_hot_pkt->setData(rd_hot_pkt->getPtr<uint8_t>());
-                        memPorts[0].sendFunctional(wb_hot_pkt);
+                            mg_tag_pkt->allocate();
+                            mg_tag_pkt->setData(rd_tag_pkt->getPtr<uint8_t>());
+                            memPorts[1].sendFunctional(mg_tag_pkt);
 
-                        assert(wb_hot_pkt->isResponse());
-                        fmWriteNum++;
-                        delete rd_hot_pkt;
-                        delete wb_hot_pkt;
+                            assert(mg_tag_pkt->isResponse());
+                            nmWriteNum++;
+                            delete rd_tag_pkt;
+                            delete mg_tag_pkt;
 
-                        // 4. migrate tag page to original positon
-                        RequestPtr mg_tag_req = std::make_shared<Request>(
-                            NM_block_addr, BLK_SIZE, 0, 0);
-                        PacketPtr mg_tag_pkt = new Packet(mg_tag_req,
-                            MemCmd::WriteReq, BLK_SIZE);
-                        mg_tag_pkt->allocate();
-                        mg_tag_pkt->setData(rd_tag_pkt->getPtr<uint8_t>());
-                        memPorts[1].sendFunctional(mg_tag_pkt);
+                            // 5. write pkt to new positon
+                            memPorts[1].sendPacket(pkt);
 
-                        assert(mg_tag_pkt->isResponse());
-                        nmWriteNum++;
-                        delete rd_tag_pkt;
-                        delete mg_tag_pkt;
+                            migrationNum++;
+                            //update hotpos
+                            replaceBits(rmp_entry,63,64-(log(ratio)/log(2)+1),
+                                curpos);
+                            hotCounterReset(rmp_entry, curpos-1);
+                            remappingTable[index] = rmp_entry;
 
-                        // 5. write pkt to new positon
-                        memPorts[1].sendPacket(pkt);
-
-                        migrationNum++;
-                        //update hotpos
-                        replaceBits(rmp_entry, 63, 64-(log(ratio)/log(2)+1),
-                             curpos);
-                        hotCounterReset(rmp_entry, curpos-1);
-                        remappingTable[index] = rmp_entry;
-                    } // end if cnter compare
-                } // end if tag=0
-            } // end if hotpos = 5
-        } // end if hotpos=0
-
+                            chipActNum[chipNo]++;
+                        } // end if cnter compare
+                    } // end if tag=0
+                } // end if hotpos = 5
+            } // end if hotpos=0
+        } // end if chipStatus =0
     } // end if farMem contains addr
 }
 
@@ -790,8 +886,8 @@ UMController::handleResponse(PacketPtr pkt)
         if (pagePktNum > 0){
             if (originalPacket->isRead()){
                 // for read req, we should copy the payload to originalpkt
-                DPRINTF(UMController,
-                        "Copying data from pagePkt to original\n");
+                //DPRINTF(UMController,
+                //        "Copying data from pagePkt to original\n");
                 uint8_t *data = originalPacket->getPtr<uint8_t>() +
                     (pkt->getAddr() - originalPacket->getAddr());
                 std::memcpy(data, pkt->getPtr<uint8_t>(), pkt->getSize());
@@ -853,7 +949,7 @@ UMController::handleFunctional(PacketPtr pkt)
             originalPacket = pkt;
             pagePktNum = (length / BLK_SIZE) + ((length % BLK_SIZE) ? 1 : 0);
         }
-        DPRINTF(UMController,"Functional access spans %d pages\n",pagePktNum);
+      //DPRINTF(UMController,"Functional access spans %d pages\n",pagePktNum);
 
         while (size > 0){
             PacketPtr new_pkt = new Packet(pkt->req, pkt->cmd);
@@ -1009,6 +1105,265 @@ UMController::parseRmpEntry(uint64_t entry)
     for (int i=0; i<ratio+1; i++){
         hotCounter[i] = bits(entry, (i*4)+3, i*4);
     }
+}
+
+int
+UMController::getStatus(float load)
+{
+    if (load < LOW_THRESHOLD){
+        return LOW_LOAD;
+    } else if (load < HIGH_THRESHOLD){
+        return MIDDLE_LOAD;
+    } else{
+        return HIGH_LOAD;
+    }
+}
+
+void
+UMController::changeStatus(int newStatus)
+{
+    assert(newStatus>=0 && newStatus<3);
+    assert(newStatus != lastStatus);
+
+    int chips = 0;
+    if (lastStatus == HIGH_LOAD){
+        switch (newStatus)
+        {
+        case LOW_LOAD:
+            DPRINTF(MemStatus, "HIGH->LOW\n");
+            chips = chipNum / 4 + chipNum / 2;
+            closeChip(chips);
+            break;
+        case MIDDLE_LOAD:
+            DPRINTF(MemStatus, "HIGH->MIDDLE\n");
+            chips = chipNum / 2;
+            closeChip(2);
+            break;
+        default:
+            panic("Invalid status 01\n");
+            break;
+        }
+    } else if (lastStatus == MIDDLE_LOAD){
+        switch (newStatus)
+        {
+        case HIGH_LOAD:
+            DPRINTF(MemStatus, "MIDDLE->HIGH\n");
+            chips = chipNum / 2;
+            openChip(chips);
+            break;
+        case LOW_LOAD:
+            DPRINTF(MemStatus, "MIDDLE->LOW\n");
+            chips = chipNum / 4;
+            closeChip(chips);
+            break;
+        default:
+            panic("Invalid status 02\n");
+            break;
+        }
+    } else if (lastStatus == LOW_LOAD){
+        switch (newStatus)
+        {
+        case MIDDLE_LOAD:
+            DPRINTF(MemStatus, "LOW->MIDDLE\n");
+            chips = chipNum / 4;
+            openChip(chips);
+            break;
+        case HIGH_LOAD:
+            DPRINTF(MemStatus, "LOW->HIGH\n");
+            chips = chipNum / 2 + chipNum / 4;
+            openChip(chips);
+            break;
+        default:
+            panic("Invalid status 03\n");
+            break;
+        }
+    } else{
+        panic("Invalid status 04\n");
+    }
+
+    lastStatus = newStatus;
+}
+
+void
+UMController::closeChip(int chips)
+{
+    assert(chips > 0 && chips < chipNum);
+
+    // NM chips check
+    int n=0;
+    for (int i=0;i<chipNum;i++){
+        if (chipStatus[i] == 1){
+            n++;
+        }
+    }
+    if (chips > n){
+        panic("Chip controlling error!\n");
+    }
+
+    for (int i=0; i<chips; i++){
+        n = chooseChip(strategy);
+        moveData(n);
+        chipStatus[n] = 0;
+        DPRINTF(ChipMnt, "Close %d-chip base on %d-policy\n", n, strategy);
+    }
+}
+
+void
+UMController::openChip(int chips)
+{
+    assert(chips > 0 && chips < chipNum);
+
+    uint64_t MAX;
+    int n;
+    for (int i=0; i<chips; i++){
+        MAX = 0;
+        for (int j=0; j<chipNum; j++){
+            if (!chipStatus[j]){
+                if (chipActNum[j] > MAX){
+                    MAX = chipActNum[j];
+                    n = j;
+                }
+            }
+        }
+        chipStatus[n] = 1;
+        DPRINTF(ChipMnt, "Open %d-chip\n", n);
+    }
+}
+
+int
+UMController::chooseChip(int stgy)
+{
+    uint64_t MIN0 = 0x1fffffffffffffff;
+    uint64_t MIN1 = 0x1fffffffffffffff;
+
+    int ret0 = -1;
+    int ret1 = -1; // chipNo choosed
+
+    for (int i=0;i<chipNum; i++){
+        if (chipStatus[i] == 1){
+            if (chipRmpsNum[i] < MIN0){
+                MIN0 = chipRmpsNum[i];
+                ret0 = i;
+            }
+            if (chipActNum[i] < MIN1){
+                MIN1 = chipActNum[i];
+                ret1 = i;
+            }
+        }
+    }
+
+    if (stgy == 0){
+        // rmps
+        return ret0;
+    } else if (stgy == 1){
+        // active status
+        return ret1;
+    } else if (stgy == 2){
+        // TODO: weighted
+        return ret0;
+    } else{
+        panic("unknow stgy value!\n");
+        return -1;
+    }
+}
+
+void
+UMController::moveData(int chipNo)
+{
+    int blknum = nearMem.size() / BLK_SIZE;
+    int chipSize = blknum / chipNum;
+    uint64_t entry;
+    Addr NMaddr, FMaddr, BKPaddr;
+
+    int start = chipNo * chipSize;
+    int end = (chipNo+1) * chipSize - 1;
+    for (int i=start; i<end; i++){
+        entry = remappingTable[i];
+        parseRmpEntry(entry);
+
+        if (hotpos == 0){
+            // NM page hasn't been used, skip this page
+            continue;
+        }
+        NMaddr = i * BLK_SIZE + nearMem.start();
+        FMaddr = (hotpos - 1) * nearMem.size() + i * BLK_SIZE;
+
+        // read NM page first
+        RequestPtr rd_nm_req = std::make_shared<Request>(
+                    NMaddr, BLK_SIZE, 0 ,0);
+        PacketPtr rd_nm_pkt = new Packet(rd_nm_req, MemCmd::ReadReq);
+        rd_nm_pkt->allocate();
+        memPorts[1].sendAtomic(rd_nm_pkt);
+        assert(rd_nm_pkt->isResponse());
+
+        if (hotpos != 0 && hotpos != (ratio+1) && tag == 0){
+            // Exist FM->NM single direction remapping
+            // just need to migrate page to FM
+            RequestPtr wt_fm_req = std::make_shared<Request>(
+                    FMaddr, BLK_SIZE, 0, 0);
+            PacketPtr wt_fm_pkt = new Packet(wt_fm_req, MemCmd::WriteReq);
+            wt_fm_pkt->allocate();
+            wt_fm_pkt->setData(rd_nm_pkt->getPtr<uint8_t>());
+            memPorts[0].sendAtomic(wt_fm_pkt);
+            assert(wt_fm_pkt->isResponse());
+
+            delete wt_fm_pkt;
+
+        } else if (hotpos !=0 && hotpos!=(ratio+1) && tag ==1){
+            // double direction remapping (FM <--> NM)
+            // need to swap and then migrate NM page to bkpMem
+            RequestPtr rd_fm_req = std::make_shared<Request>(
+                    FMaddr, BLK_SIZE, 0, 0);
+            PacketPtr rd_fm_pkt = new Packet(rd_fm_req, MemCmd::ReadReq);
+            rd_fm_pkt->allocate();
+            memPorts[0].sendAtomic(rd_fm_pkt);
+            assert(rd_fm_pkt->isResponse());
+
+            RequestPtr wt_fm_req = std::make_shared<Request>(
+                    FMaddr, BLK_SIZE, 0 ,0);
+            PacketPtr wt_fm_pkt = new Packet(wt_fm_req, MemCmd::WriteReq);
+            wt_fm_pkt->allocate();
+            wt_fm_pkt->setData(rd_nm_pkt->getPtr<uint8_t>());
+            memPorts[0].sendAtomic(wt_fm_pkt);
+            assert(wt_fm_pkt->isResponse());
+
+            // write original NM page to bkpMem
+            BKPaddr = i * BLK_SIZE + bkpMem.start();
+            RequestPtr wt_bkp_req = std::make_shared<Request>(
+                    BKPaddr, BLK_SIZE, 0 , 0);
+            PacketPtr wt_bkp_pkt = new Packet(wt_bkp_req, MemCmd::WriteReq);
+            wt_bkp_pkt->allocate();
+            wt_bkp_pkt->setData(rd_fm_pkt->getPtr<uint8_t>());
+            memPorts[2].sendAtomic(wt_bkp_pkt);
+            assert(wt_bkp_pkt);
+
+            delete rd_fm_pkt;
+            delete wt_fm_pkt;
+            delete wt_bkp_pkt;
+
+        } else if (hotpos == (ratio+1) && tag == 1){
+            // NM page is used, no rmp, need to migrate page to bkpMem
+            BKPaddr = i * BLK_SIZE + bkpMem.start();
+            RequestPtr wt_bkp_req = std::make_shared<Request>(
+                    BKPaddr, BLK_SIZE, 0 , 0);
+            PacketPtr wt_bkp_pkt = new Packet(wt_bkp_req, MemCmd::WriteReq);
+            wt_bkp_pkt->allocate();
+            wt_bkp_pkt->setData(rd_nm_pkt->getPtr<uint8_t>());
+            memPorts[2].sendAtomic(wt_bkp_pkt);
+            assert(wt_bkp_pkt);
+
+            delete wt_bkp_pkt;
+
+        } else{
+            panic("unknown remapping type! hotpos=%d,tag=%d \n", hotpos, tag);
+        }
+        delete rd_nm_pkt;
+
+        // delete rmp_entry
+        remappingTable[i] = 0;
+    }
+
+
 }
 
 AddrRangeList

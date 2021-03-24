@@ -7,16 +7,13 @@ declare -a Configs
 Configs=(
     pure
     sram
-    #twolevel
-    #imo
-    #silc
     hybrid
 )
 
 declare -a Benches
 Benches=(
     basicmath
-    #blowfish
+    blowfish
     crc
     patricia
     rsynth
@@ -27,20 +24,26 @@ Benches=(
 ScriptDir=~/pzx/gem5/configs/hum/mibench/
 OutputDir=~/pzx/gem5/m5out/mibench/
 
+time_begin=$(date)
+echo $time_begin
+
 for Config in ${Configs[*]}
 do
     echo "Run "$Config" Mibench workload begin"
-    Script=$ScriptDir$Config
+    Script=$ScriptDir$Config/test/
     Output=$OutputDir$Config/
     for Bench in ${Benches[*]}
     do
         echo "bench:"$Bench
         $Gem5 -d $Output"$Bench"/ \
-        --stats-file=small_stats.txt \
-        --dump-config=small_config.ini \
+        --stats-file=test_stats.txt \
+        --dump-config=test_config.ini \
         $Script"$Bench".py
     done;
     echo "Run "$Config" Mibench finished"
 done;
+
+time_end=$(date)
+echo $time_end
 
 exit 0

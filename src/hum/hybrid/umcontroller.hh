@@ -223,6 +223,45 @@ class UMController : public ClockedObject
      */
     void parseRmpEntry(uint64_t entry);
 
+    /**
+     * get the load status of memory
+     * @param load: ioCntr/IOPEAK
+     * @return : status (high/middle/low)
+     */
+    int getStatus(float load);
+
+    /**
+     * change the status of memory, need to close NM chip and move data
+     */
+    void changeStatus(int status);
+
+    /**
+     * close chip according to the changing of status
+     */
+    void closeChip(int n);
+
+    /**
+     * open chip according to the changing of status
+     */
+    void openChip(int n);
+
+    /**
+     * choose chip to close according to strategy
+     * @param strategy: 3 types
+     *        1) stgy = 0, according to chipRmpsNum, choosing the chip with le
+     *        -ast data need to move
+     *        2) stgy = 1, according to chipActNum, choosing the most inactive
+     *        chip
+     *        3) stgy = 2, give different weight to both indicator and chooose
+     * @return the chip number to close
+     */
+    int chooseChip(int stgy);
+
+    /**
+     * move NM chip data to FM
+     * @param the chip number
+     */
+    void moveData(int chipNo);
 
     /// Pointer to System object
     System *system;
@@ -263,6 +302,8 @@ class UMController : public ClockedObject
 
     AddrRange farMem;
 
+    AddrRange bkpMem;
+
     /// The capacity ratio between FM and NM, it should be a integer
     int ratio;
 
@@ -281,6 +322,32 @@ class UMController : public ClockedObject
     /// The hotness competition counter array, the array size is equal
     /// to capaticy ratio between STTRAM and SRAM
     std::vector<uint64_t> hotCounter;
+
+    /// the counter used to stat IO(memory access) numbers
+    uint64_t ioCntr;
+
+    /// the begin tick of IOPS stats
+    Tick startTick;
+
+    /// the last memory load status reserved
+    /// INITIAL:-1, LOW:0; MIDDLE:1; HIGH:2
+    int lastStatus;
+
+    /// NM chip number
+    int chipNum;
+
+    /// NM chip status
+    bool *chipStatus;
+
+    /// strategy for choosing chips to close
+    /// 0: rmpings, 1: act; 2: weighted
+    int strategy;
+
+    /// remappings number of chips
+    uint64_t *chipRmpsNum;
+
+    /// Active level of chips
+    uint64_t *chipActNum;
 
     /** constructor
       */
