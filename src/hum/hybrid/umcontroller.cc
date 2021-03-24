@@ -264,7 +264,7 @@ UMController::handleRequest(PacketPtr pkt, int port_id)
     unsigned size = pkt->getSize();
 
     if (bkpMem.contains(laddr)){
-        DPRINTF(STATS,"ERROR: bkpmem is used!\n");
+        DPRINTF(MemStatus,"ERROR: bkpmem is used!\n");
     }
 
     // if this req spans multi-pages.
@@ -546,7 +546,7 @@ UMController::handlePageRequest(PacketPtr pkt)
                             delete rd_hot_pkt;
                             delete wb_pkt;
 
-                            chipActNum[chipNo]++
+                            chipActNum[chipNo]++;
                             // 2. migrate the curpos page to NM
                             // this part is same for bellow cases, we leave it
                             // to outer if-else later
@@ -988,42 +988,58 @@ UMController::handlePageFunctional(PacketPtr pkt)
     int page_num, index;
     uint64_t curpos, rmp_entry;
 
+    int chipSize = (nearMem.size() / BLK_SIZE) / chipNum;
+    int chipNo = -1;
+
     if (farMem.contains(addr)){
         page_num = addr / BLK_SIZE;
         index = page_num % (nearMem.size() / BLK_SIZE);
         curpos = page_num / (nearMem.size() / BLK_SIZE) + 1;
 
-        rmp_entry = remappingTable[index];
-        NM_block_addr = index * BLK_SIZE + nearMem.start();
-        NM_addr = NM_block_addr + pkt->getOffset(BLK_SIZE);
-
-        parseRmpEntry(rmp_entry);
-
-        if (curpos == hotpos){
-            pkt->setAddr(NM_addr);
-            memPorts[1].sendFunctional(pkt);
-        } else {
-            //DPRINTF(UMController, "Forward funcReq to FM addr %#x \n",
-            //        pkt->getAddr());
+        chipNo = index / chipSize;
+        if (chipStatus[chipNo] == 0){
             memPorts[0].sendFunctional(pkt);
+        } else{
+            rmp_entry = remappingTable[index];
+            NM_block_addr = index * BLK_SIZE + nearMem.start();
+            NM_addr = NM_block_addr + pkt->getOffset(BLK_SIZE);
+
+            parseRmpEntry(rmp_entry);
+
+            if (curpos == hotpos){
+                pkt->setAddr(NM_addr);
+                memPorts[1].sendFunctional(pkt);
+            } else {
+                //DPRINTF(UMController, "Forward funcReq to FM addr %#x \n",
+                //        pkt->getAddr());
+                memPorts[0].sendFunctional(pkt);
+            }
         }
     }else{
         assert(nearMem.contains(addr));
 
         index = (addr - nearMem.start()) / BLK_SIZE;
-        curpos = 5;
-        rmp_entry = remappingTable[index];
+        curpos = ratio + 1;
 
-        Addr FM_addr = (hotpos - 1) * nearMem.size() +
-                    (addr - nearMem.start());
+        chipNo = index / chipSize;
+        if (chipStatus[chipNo] == 0){
+            Addr BKPaddr = addr - nearMem.start() + bkpMem.start();
+            pkt->setAddr(BKPaddr);
+            memPorts[2].sendFunctional(pkt);
+        } else{
+            rmp_entry = remappingTable[index];
 
-        if (hotpos != curpos && hotpos != 0){
-            pkt->setAddr(FM_addr);
-            memPorts[0].sendFunctional(pkt);
-        }else{
-            //DPRINTF(UMController, "Forward funcReq to NM addr %#x \n",
-            //        pkt->getAddr());
-            memPorts[1].sendFunctional(pkt);
+            Addr FM_addr = (hotpos - 1) * nearMem.size() +
+                        (addr - nearMem.start());
+
+            if (hotpos != curpos && hotpos != 0){
+                pkt->setAddr(FM_addr);
+                memPorts[0].sendFunctional(pkt);
+            }else{
+                //DPRINTF(UMController, "Forward funcReq to NM addr %#x \n",
+                //        pkt->getAddr());
+                memPorts[1].sendFunctional(pkt);
+            }
         }
     }
 }
@@ -1225,6 +1241,7 @@ UMController::openChip(int chips)
                 }
             }
         }
+        restoreData(n);
         chipStatus[n] = 1;
         DPRINTF(ChipMnt, "Open %d-chip\n", n);
     }
@@ -1299,6 +1316,7 @@ UMController::moveData(int chipNo)
         if (hotpos != 0 && hotpos != (ratio+1) && tag == 0){
             // Exist FM->NM single direction remapping
             // just need to migrate page to FM
+            DPRINTF(ChipMnt, "MOVE:case1\n");
             RequestPtr wt_fm_req = std::make_shared<Request>(
                     FMaddr, BLK_SIZE, 0, 0);
             PacketPtr wt_fm_pkt = new Packet(wt_fm_req, MemCmd::WriteReq);
@@ -1309,9 +1327,13 @@ UMController::moveData(int chipNo)
 
             delete wt_fm_pkt;
 
+            // remove rmp entry
+            remappingTable[i] = 0;
+
         } else if (hotpos !=0 && hotpos!=(ratio+1) && tag ==1){
             // double direction remapping (FM <--> NM)
             // need to swap and then migrate NM page to bkpMem
+            DPRINTF(ChipMnt, "MOVE:case2, bkpMem is used\n");
             RequestPtr rd_fm_req = std::make_shared<Request>(
                     FMaddr, BLK_SIZE, 0, 0);
             PacketPtr rd_fm_pkt = new Packet(rd_fm_req, MemCmd::ReadReq);
@@ -1341,8 +1363,12 @@ UMController::moveData(int chipNo)
             delete wt_fm_pkt;
             delete wt_bkp_pkt;
 
+            // set entry=1, indicate that NM data stored in bkpMem
+            remappingTable[i] = 1;
+
         } else if (hotpos == (ratio+1) && tag == 1){
             // NM page is used, no rmp, need to migrate page to bkpMem
+            DPRINTF(ChipMnt, "MOVE:case3, bkpMem is used\n");
             BKPaddr = i * BLK_SIZE + bkpMem.start();
             RequestPtr wt_bkp_req = std::make_shared<Request>(
                     BKPaddr, BLK_SIZE, 0 , 0);
@@ -1354,16 +1380,59 @@ UMController::moveData(int chipNo)
 
             delete wt_bkp_pkt;
 
+            // set entry=1, indicate that NM data stored in bkpMem
+            remappingTable[i] = 1;
+
         } else{
             panic("unknown remapping type! hotpos=%d,tag=%d \n", hotpos, tag);
         }
         delete rd_nm_pkt;
-
-        // delete rmp_entry
-        remappingTable[i] = 0;
     }
+}
 
+void
+UMController::restoreData(int chipNo)
+{
+    int blknum = nearMem.size() / BLK_SIZE;
+    int chipSize = blknum / chipNum;
+    uint64_t entry;
+    Addr NMaddr, BKPaddr;
 
+    int start = chipNo * chipSize;
+    int end = (chipNo+1) * chipSize - 1;
+
+    for (int i=start; i<end; i++){
+        entry = remappingTable[i];
+        if (entry == 1){
+            BKPaddr = i * BLK_SIZE + bkpMem.start();
+            NMaddr = i * BLK_SIZE + nearMem.start();
+
+            RequestPtr rd_bkp_req = std::make_shared<Request>(
+                BKPaddr, BLK_SIZE, 0, 0);
+            PacketPtr rd_bkp_pkt = new Packet(rd_bkp_req, MemCmd::ReadReq);
+            rd_bkp_pkt->allocate();
+            memPorts[2].sendAtomic(rd_bkp_pkt);
+            assert(rd_bkp_pkt->isResponse());
+
+            RequestPtr wt_nm_req = std::make_shared<Request>(
+                NMaddr, BLK_SIZE, 0, 0);
+            PacketPtr wt_nm_pkt = new Packet(wt_nm_req, MemCmd::WriteReq);
+            wt_nm_pkt->allocate();
+            wt_nm_pkt->setData(rd_bkp_pkt->getPtr<uint8_t>());
+            memPorts[1].sendAtomic(wt_nm_pkt);
+            assert(wt_nm_pkt->isResponse());
+
+            delete rd_bkp_pkt;
+            delete wt_nm_pkt;
+
+            // set rmp entry, hotpos, tag
+            replaceBits(entry, 63, 64-(log(ratio)/log(2)+1), ratio+1);
+            replaceBits(entry, 63-(log(ratio)/log(2)+1), 1);
+            hotCounterReset(entry, ratio);
+
+            remappingTable[i] = entry;
+        }
+    }
 }
 
 AddrRangeList

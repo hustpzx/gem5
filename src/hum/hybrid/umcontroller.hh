@@ -263,6 +263,12 @@ class UMController : public ClockedObject
      */
     void moveData(int chipNo);
 
+    /**
+     * restore bkpMem data to NM
+     * @param the chipNo
+     */
+    void restoreData(int chipNo);
+
     /// Pointer to System object
     System *system;
 
