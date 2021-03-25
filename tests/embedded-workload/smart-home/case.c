@@ -120,8 +120,8 @@ int main()
     double delay;
     clock_t start;
 
+    printf("Smart-Home device simulating begin:\n");
     instTask();
-    //printf("Smart-Home device simulating begin:\n");
 
     // 00:00 - 07:00 low-load 10%
     start = clock();
@@ -131,7 +131,7 @@ int main()
     {
 
     }
-    printf("(00:00 - 07:00) n=%ld\n",n);
+    printf("(00:00 - 07:00) low-load \n");
 
     // 07:00 - 09:00, middle-load 40%
     start = clock();
@@ -154,7 +154,7 @@ int main()
         n = n+5;
         n = n-5;
     }
-    printf("(07:00 - 09:00) n=%ld\n",n);
+    printf("(07:00 - 09:00) n=%ld high load\n",n);
 
     // 09:00 - 12:00, low-load 20%
     int i;
@@ -169,7 +169,7 @@ int main()
             n = n + 5;
         }
     }
-    printf("(09:00 - 12:00) \n");
+    printf("(09:00 - 12:00) low-load\n");
 
     // 12:00 - 13:00, middle-load 30%
     start = clock();
@@ -186,7 +186,7 @@ int main()
             last = clock();
         }
     }
-    printf("(12:00 - 13:00) n=%ld\n", n);
+    printf("(12:00 - 13:00) n=%ld middle load\n", n);
 
     // 13:00 - 14:00, low-load 1-%
     start=clock();
@@ -195,7 +195,7 @@ int main()
     while (clock() - start < delay){
 
     }
-    printf("(13:00 - 14:00) \n");
+    printf("(13:00 - 14:00) low load\n");
 
     // 14:00 - 17:00, low-load 20%
     n=0;
@@ -209,7 +209,7 @@ int main()
             n = n + 5;
         }
     }
-    printf("(14:00 - 17:00) \n");
+    printf("(14:00 - 17:00) low load\n");
 
     // 17:00 - 22:00, high load 80%
     start=clock();
@@ -219,7 +219,7 @@ int main()
         n++;
         high_load();
     }
-    printf("(17:00 - 22:00) n=%ld\n", n);
+    printf("(17:00 - 22:00) n=%ld high load\n", n);
 
 
     // 22:00 - 00:00 low-load 10%
@@ -229,7 +229,7 @@ int main()
     {
 
     }
-    printf("(22:00 - 00:00) \n");
+    printf("(22:00 - 00:00) low load\n");
 
 
     return 0;

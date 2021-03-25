@@ -19,10 +19,13 @@
 
 // define the threshold of memory IO
 #define HIGH_THRESHOLD  0.6
-#define LOW_THRESHOLD   0.25
+#define LOW_THRESHOLD   0.3
 
-#define IOPEAK  140000
-#define IOBASE  60000
+#define IOPEAK_HIGH  140000
+#define IOBASE_HIGH  60000
+
+#define IOPEAK_LOW  90000
+#define IOBASE_LOW  40000
 
 UMController::UMController(UMControllerParams *params) :
     ClockedObject(params),
@@ -59,10 +62,26 @@ UMController::UMController(UMControllerParams *params) :
     hotCounter.resize((ratio+1),0);
 
     chipStatus = new bool[chipNum];
+
+    // Initialized ti HIGH_LOAD
     for (int i=0; i<chipNum; i++){
         chipStatus[i] = 1;
     }
 
+    /*
+    // Initialized to MIDDLE_LOAD
+    chipStatus[0] = 1;
+    chipStatus[1] = 1;
+    chipStatus[2] = 0;
+    chipStatus[3] = 0;
+    */
+    /*
+    // Initialized to LOW_LOAD
+    chipStatus[0] = 0;
+    chipStatus[1] = 0;
+    chipStatus[2] = 0;
+    chipStatus[3] = 1;
+    */
     chipRmpsNum = new uint64_t[chipNum]();
     chipActNum = new uint64_t[chipNum]();
 }
@@ -237,15 +256,16 @@ UMController::handleRequest(PacketPtr pkt, int port_id)
             ioCntr++;
         }
     }else{
-        //DPRINTF(STATS, "%d\n", ioCntr);
+        DPRINTF(STATS, "ioCntr: %d\n", ioCntr);
         // get current memory load status and compare
 
-        float load = (ioCntr-IOBASE) / (IOPEAK-IOBASE);
-        int status = getStatus(load);
+
+        int status = getStatus(ioCntr);
 
         if (status != lastStatus){
-            DPRINTF(MemStatus, "load=%6.3f, newStatus = %d\n",load, status);
             changeStatus(status);
+        } else{
+            DPRINTF(MemStatus, "Status: %d KEEP\n\n", lastStatus);
         }
 
         // Reset chip statistics(rmps & act)
@@ -1124,8 +1144,23 @@ UMController::parseRmpEntry(uint64_t entry)
 }
 
 int
-UMController::getStatus(float load)
+UMController::getStatus(uint64_t cntr)
 {
+    float load;
+    uint64_t ioPeak, ioBase;
+    if (lastStatus == LOW_LOAD){
+        ioPeak = IOPEAK_LOW;
+        ioBase = IOBASE_LOW;
+    } else{
+        ioPeak = IOPEAK_HIGH;
+        ioBase = IOBASE_HIGH;
+    }
+    if (cntr < ioBase){
+        cntr = ioBase +1;
+    }
+    load = (float)(cntr - ioBase) / (float)(ioPeak - ioBase);
+    //DPRINTF(MemStatus, "load=%6.3f\n",load);
+
     if (load < LOW_THRESHOLD){
         return LOW_LOAD;
     } else if (load < HIGH_THRESHOLD){
@@ -1146,12 +1181,12 @@ UMController::changeStatus(int newStatus)
         switch (newStatus)
         {
         case LOW_LOAD:
-            DPRINTF(MemStatus, "HIGH->LOW\n");
+            DPRINTF(MemStatus, "Status: 0 HIGH->LOW\n\n");
             chips = chipNum / 4 + chipNum / 2;
             closeChip(chips);
             break;
         case MIDDLE_LOAD:
-            DPRINTF(MemStatus, "HIGH->MIDDLE\n");
+            DPRINTF(MemStatus, "Status: 1 HIGH->MIDDLE\n\n");
             chips = chipNum / 2;
             closeChip(2);
             break;
@@ -1163,12 +1198,12 @@ UMController::changeStatus(int newStatus)
         switch (newStatus)
         {
         case HIGH_LOAD:
-            DPRINTF(MemStatus, "MIDDLE->HIGH\n");
+            DPRINTF(MemStatus, "Status: 2 MIDDLE->HIGH\n\n");
             chips = chipNum / 2;
             openChip(chips);
             break;
         case LOW_LOAD:
-            DPRINTF(MemStatus, "MIDDLE->LOW\n");
+            DPRINTF(MemStatus, "Status: 0 MIDDLE->LOW\n\n");
             chips = chipNum / 4;
             closeChip(chips);
             break;
@@ -1180,12 +1215,12 @@ UMController::changeStatus(int newStatus)
         switch (newStatus)
         {
         case MIDDLE_LOAD:
-            DPRINTF(MemStatus, "LOW->MIDDLE\n");
+            DPRINTF(MemStatus, "Status: 1 LOW->MIDDLE\n\n");
             chips = chipNum / 4;
             openChip(chips);
             break;
         case HIGH_LOAD:
-            DPRINTF(MemStatus, "LOW->HIGH\n");
+            DPRINTF(MemStatus, "Status: 2 LOW->HIGH\n\n");
             chips = chipNum / 2 + chipNum / 4;
             openChip(chips);
             break;
@@ -1233,9 +1268,10 @@ UMController::openChip(int chips)
     int n;
     for (int i=0; i<chips; i++){
         MAX = 0;
+        n = -1;
         for (int j=0; j<chipNum; j++){
             if (!chipStatus[j]){
-                if (chipActNum[j] > MAX){
+                if (chipActNum[j] >= MAX){
                     MAX = chipActNum[j];
                     n = j;
                 }
@@ -1294,7 +1330,9 @@ UMController::moveData(int chipNo)
 
     int start = chipNo * chipSize;
     int end = (chipNo+1) * chipSize - 1;
-    for (int i=start; i<end; i++){
+
+    int case1, case2, case3;
+    for (int i=start, case1=0,case2=0,case3=0; i<end; i++){
         entry = remappingTable[i];
         parseRmpEntry(entry);
 
@@ -1316,7 +1354,8 @@ UMController::moveData(int chipNo)
         if (hotpos != 0 && hotpos != (ratio+1) && tag == 0){
             // Exist FM->NM single direction remapping
             // just need to migrate page to FM
-            DPRINTF(ChipMnt, "MOVE:case1\n");
+            //DPRINTF(ChipMnt, "MOVE:case1\n");
+            case1++;
             RequestPtr wt_fm_req = std::make_shared<Request>(
                     FMaddr, BLK_SIZE, 0, 0);
             PacketPtr wt_fm_pkt = new Packet(wt_fm_req, MemCmd::WriteReq);
@@ -1333,7 +1372,8 @@ UMController::moveData(int chipNo)
         } else if (hotpos !=0 && hotpos!=(ratio+1) && tag ==1){
             // double direction remapping (FM <--> NM)
             // need to swap and then migrate NM page to bkpMem
-            DPRINTF(ChipMnt, "MOVE:case2, bkpMem is used\n");
+            //DPRINTF(ChipMnt, "MOVE:case2, bkpMem is used\n");
+            case2++;
             RequestPtr rd_fm_req = std::make_shared<Request>(
                     FMaddr, BLK_SIZE, 0, 0);
             PacketPtr rd_fm_pkt = new Packet(rd_fm_req, MemCmd::ReadReq);
@@ -1368,7 +1408,8 @@ UMController::moveData(int chipNo)
 
         } else if (hotpos == (ratio+1) && tag == 1){
             // NM page is used, no rmp, need to migrate page to bkpMem
-            DPRINTF(ChipMnt, "MOVE:case3, bkpMem is used\n");
+            //DPRINTF(ChipMnt, "MOVE:case3, bkpMem is used\n");
+            case3++;
             BKPaddr = i * BLK_SIZE + bkpMem.start();
             RequestPtr wt_bkp_req = std::make_shared<Request>(
                     BKPaddr, BLK_SIZE, 0 , 0);
@@ -1388,6 +1429,8 @@ UMController::moveData(int chipNo)
         }
         delete rd_nm_pkt;
     }
+    DPRINTF(ChipMnt, "move page case1:%d, case2:%d, case3:%d\n",
+        case1, case2, case3);
 }
 
 void
@@ -1400,7 +1443,7 @@ UMController::restoreData(int chipNo)
 
     int start = chipNo * chipSize;
     int end = (chipNo+1) * chipSize - 1;
-
+    int restore = 0;
     for (int i=start; i<end; i++){
         entry = remappingTable[i];
         if (entry == 1){
@@ -1431,8 +1474,11 @@ UMController::restoreData(int chipNo)
             hotCounterReset(entry, ratio);
 
             remappingTable[i] = entry;
+
+            restore++;
         }
     }
+    DPRINTF(ChipMnt, "restore page: %d", restore);
 }
 
 AddrRangeList

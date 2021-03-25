@@ -17,7 +17,11 @@ system.clk_domain.voltage_domain = VoltageDomain()
 # Set up the system
 system.mem_mode = 'timing'
 # create two ranges to represent different memories
-system.mem_ranges = [AddrRange('800kB'), AddrRange('800kB','900kB')]
+system.mem_ranges = [
+    AddrRange('4096kB'),
+    AddrRange('4096kB', '4608kB'),
+    AddrRange('4096kB', '5120kB')
+]
 
 # Create a simple CPU
 system.cpu = TimingSimpleCPU()
@@ -27,7 +31,7 @@ system.umc = UMController()
 
 system.umc.farmem = system.mem_ranges[0]
 system.umc.nearmem = system.mem_ranges[1]
-system.umc.bkpmem = AddrRange('900kB','1000kB')
+system.umc.bkpmem = system.mem_ranges[2]
 
 # Connect the I and D cache ports of th CPU to the umc.
 # Since cpu_side is a vector port, each time one of these is connected, it
@@ -65,7 +69,7 @@ system.memories[0].range = system.mem_ranges[0]
 system.memories[0].port = system.sttram_delay.master
 system.memories[1].range = system.mem_ranges[1]
 system.memories[1].port = system.sram_delay.master
-system.memories[2].range = system.umc.bkpmem
+system.memories[2].range = system.mem_ranges[2]
 system.memories[2].port = system.bkpmem_delay.master
 
 

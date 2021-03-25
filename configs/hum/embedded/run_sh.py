@@ -1,7 +1,5 @@
 """
-We use this file to test and debug the umc which manages two
-memories consists of SRAM and STT-RAM.
-This config file assume that the ARM ISA was built.
+Smart-home device workload running config
 """
 
 # import the m5(gem5) library created when gem5 is built
@@ -19,7 +17,11 @@ system.clk_domain.voltage_domain = VoltageDomain()
 # Set up the system
 system.mem_mode = 'timing'
 # create two ranges to represent different memories
-system.mem_ranges = [AddrRange('4096kB'), AddrRange('4096kB','4608kB')]
+system.mem_ranges = [
+    AddrRange('4096kB'),
+    AddrRange('4096kB', '4608kB'),
+    AddrRange('4096kB', '5120kB')
+]
 
 # Create a simple CPU
 system.cpu = TimingSimpleCPU()
@@ -29,6 +31,7 @@ system.umc = UMController()
 
 system.umc.farmem = system.mem_ranges[0]
 system.umc.nearmem = system.mem_ranges[1]
+system.umc.bkpmem = system.mem_ranges[2]
 
 # Connect the I and D cache ports of th CPU to the umc.
 # Since cpu_side is a vector port, each time one of these is connected, it
@@ -44,26 +47,35 @@ system.cpu.createInterruptController()
 system.sram_delay = SimpleMemDelay(read_req = '2.02ns', write_req = '1.313ns')
 system.sttram_delay = SimpleMemDelay(
     read_req = '3.191ns', write_req = '11.151ns')
+system.bkpmem_delay = SimpleMemDelay(
+    read_req = '3.191ns', write_req = '11.151ns')
 
 # Connect SimpleMemDelay to mem_port of umc
 system.umc.mem_side = system.sttram_delay.slave
 system.umc.mem_side = system.sram_delay.slave
+system.umc.mem_side = system.bkpmem_delay.slave
 
 # Connect the system to the umc
 system.system_port = system.umc.cpu_side
 
 # Create two SimpleMemory objects to simulate SRAM and STT-RAM
 system.memories = [SimpleMemory(latency='0ns', bandwidth='30.668GB/s'),
-                SimpleMemory(latency='0ns', bandwidth='213.689GB/s')]
+                SimpleMemory(latency='0ns', bandwidth='213.689GB/s'),
+                SimpleMemory(latency='0ns', bandwidth='30.668GB/s',
+                in_addr_map =  False)]
 
 # Connect SimpleMemory to SimpleMemDelay
 system.memories[0].range = system.mem_ranges[0]
 system.memories[0].port = system.sttram_delay.master
 system.memories[1].range = system.mem_ranges[1]
 system.memories[1].port = system.sram_delay.master
+system.memories[2].range = system.mem_ranges[2]
+system.memories[2].port = system.bkpmem_delay.master
 
 
 process = Process()
+#process.cmd = ['tests/test-progs/hello/bin/arm/linux/hello']
+#process.cmd = ['tests/test-progs/umc/case1']
 process.cmd = ['tests/embedded-workload/smart-home/arm-case']
 system.cpu.workload = process
 system.cpu.createThreads()

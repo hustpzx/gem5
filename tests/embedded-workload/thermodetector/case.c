@@ -20,10 +20,59 @@
 #include <time.h>
 #include <unistd.h>
 
-/**
- * uploading involves network I/O, TCP/IP packing, and so on.
- * use basicmath to replace packing and memory IO to replace network IO
- */
+#define PI 3.14
+
+void SolveCubic(double  a,
+                double  b,
+                double  c,
+                double  d,
+                int    *solutions,
+                double *x)
+{
+      long double    a1 = b/a, a2 = c/a, a3 = d/a;
+      long double    Q = (a1*a1 - 3.0*a2)/9.0;
+      long double R = (2.0*a1*a1*a1 - 9.0*a1*a2 + 27.0*a3)/54.0;
+      double    R2_Q3 = R*R - Q*Q*Q;
+
+      double    theta;
+
+      if (R2_Q3 <= 0)
+      {
+            *solutions = 3;
+            theta = acos(R/sqrt(Q*Q*Q));
+            x[0] = -2.0*sqrt(Q)*cos(theta/3.0) - a1/3.0;
+            x[1] = -2.0*sqrt(Q)*cos((theta+2.0*PI)/3.0) - a1/3.0;
+            x[2] = -2.0*sqrt(Q)*cos((theta+4.0*PI)/3.0) - a1/3.0;
+      }
+      else
+      {
+            *solutions = 1;
+            x[0] = pow(sqrt(R2_Q3)+fabs(R), 1/3.0);
+            x[0] += Q/x[0];
+            x[0] *= (R < 0.0) ? 1 : -1;
+            x[0] -= a1/3.0;
+      }
+}
+
+int instTask()
+{
+
+    // use SolveCubic() to replace ADC
+    double  a1 = 1.0, b1 = -10.5, c1 = 32.0, d1 = -30.0;
+    double  a2 = 1.0, b2 = -4.5, c2 = 17.0, d2 = -30.0;
+    double  a3 = 1.0, b3 = -3.5, c3 = 22.0, d3 = -31.0;
+    double  a4 = 1.0, b4 = -13.7, c4 = 1.0, d4 = -35.0;
+    double  x[3];
+    int  solutions;
+
+    SolveCubic(a1, b1, c1, d1, &solutions, x);
+    SolveCubic(a2, b2, c2, d2, &solutions, x);
+    SolveCubic(a3, b3, c3, d3, &solutions, x);
+    SolveCubic(a4, b4, c4, d4, &solutions, x);
+
+    return 0;
+}
+
 int low_load()
 {
 
@@ -69,6 +118,9 @@ int main()
     double delay;
     clock_t start;
 
+    printf("Smart thermodetector devices simulating begin:\n");
+    instTask();
+
     // 00:00 - 07:00  10%
     start = clock();
     delay = 7 * 6 * 1000; // 7 hours
@@ -77,7 +129,7 @@ int main()
     {
 
     }
-    printf("(00:00 - 07:00) \n");
+    printf("(00:00 - 07:00) low-load\n");
 
     // 07:00 - 08:00,  60%
     start = clock();
@@ -93,7 +145,7 @@ int main()
             last = clock();
         }
     }
-    printf("(07:00 - 08:00),n=%ld \n", n);
+    printf("(07:00 - 08:00),n=%ld high load\n", n);
 
     // 08:00 - 09:00, 90%
     start=clock();
@@ -119,7 +171,7 @@ int main()
             n++;
         }
     }
-    printf("(09:00 - 09:30) n=%ld \n", n);
+    printf("(09:00 - 09:30) n=%ld middle load\n", n);
 
     // 09:30 - 12:00,  40%
     start = clock();
@@ -135,7 +187,7 @@ int main()
             last = clock();
         }
     }
-    printf("(09:30 - 12:00) n=%ld\n", n);
+    printf("(09:30 - 12:00) n=%ld low load\n", n);
 
     // 12:00 - 13:00,  90%
     start=clock();
@@ -145,7 +197,7 @@ int main()
         n++;
         high_load();
     }
-    printf("(12:00 - 13:00) \n");
+    printf("(12:00 - 13:00) high load\n");
 
     // 13:00 - 14:30,  30%
     start = clock();
@@ -161,7 +213,7 @@ int main()
             last = clock();
         }
     }
-    printf("(13:00 - 14:30) n=%ld\n", n);
+    printf("(13:00 - 14:30) n=%ld high load\n", n);
 
     // 14:30 - 17:00, low-load 20%
     start = clock();
@@ -177,7 +229,7 @@ int main()
             n++;
         }
     }
-    printf("(14:30 - 17:00) n=%ld\n", n);
+    printf("(14:30 - 17:00) n=%ld low load\n", n);
 
     // 17:00 - 19:00, high load 70%
     start = clock();
@@ -193,7 +245,7 @@ int main()
             n++;
         }
     }
-    printf("(17:00 - 19:00) n=%ld\n", n);
+    printf("(17:00 - 19:00) n=%ld high load\n", n);
 
     // 19:00 - 22:00,  40%
     start = clock();
@@ -209,7 +261,7 @@ int main()
             n++;
         }
     }
-    printf("(19:00 - 22:00) n=%ld\n", n);
+    printf("(19:00 - 22:00) n=%ld middle load\n", n);
 
     // 22:00 - 00:00 low-load 10%
     start = clock();
@@ -218,7 +270,7 @@ int main()
     {
 
     }
-    printf("(22:00 - 00:00) \n");
+    printf("(22:00 - 00:00) low load\n");
 
 
     return 0;

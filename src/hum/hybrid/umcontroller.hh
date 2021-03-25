@@ -225,10 +225,10 @@ class UMController : public ClockedObject
 
     /**
      * get the load status of memory
-     * @param load: ioCntr/IOPEAK
+     * @param cntr: ioCntr
      * @return : status (high/middle/low)
      */
-    int getStatus(float load);
+    int getStatus(uint64_t cntr);
 
     /**
      * change the status of memory, need to close NM chip and move data

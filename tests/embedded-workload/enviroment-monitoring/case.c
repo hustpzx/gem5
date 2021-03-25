@@ -21,7 +21,7 @@ typedef struct _envData{
 } envData;
 
 
-/*
+
 void SolveCubic(double  a,
                 double  b,
                 double  c,
@@ -53,7 +53,25 @@ void SolveCubic(double  a,
             x[0] -= a1/3.0;
       }
 }
-*/
+
+int instTask()
+{
+
+    // use SolveCubic() to replace ADC
+    double  a1 = 1.0, b1 = -10.5, c1 = 32.0, d1 = -30.0;
+    double  a2 = 1.0, b2 = -4.5, c2 = 17.0, d2 = -30.0;
+    double  a3 = 1.0, b3 = -3.5, c3 = 22.0, d3 = -31.0;
+    double  a4 = 1.0, b4 = -13.7, c4 = 1.0, d4 = -35.0;
+    double  x[3];
+    int  solutions;
+
+    SolveCubic(a1, b1, c1, d1, &solutions, x);
+    SolveCubic(a2, b2, c2, d2, &solutions, x);
+    SolveCubic(a3, b3, c3, d3, &solutions, x);
+    SolveCubic(a4, b4, c4, d4, &solutions, x);
+
+    return 0;
+}
 
 int getEnvData(envData *data)
 {
@@ -113,11 +131,11 @@ int uploadData(envData *data)
 
 int middle_load()
 {
-    char *tmp = (char *)malloc(512 * sizeof(char));
+    char *tmp = (char *)malloc(1024 * sizeof(char));
     char c= 'a';
     int i,j;
     for (i=0; i<10; i++)
-        for (j=0;j<512;j++){
+        for (j=0;j<1024;j++){
             tmp[j] = c;
         }
 
@@ -133,6 +151,10 @@ int main()
     int h=1;
     long n;
     clock_t start;
+
+    printf("Enviroment monitor devices simulation begin:\n");
+    instTask();
+
     while (h<=24){
         printf("the %dth hour:\n", h);
 
@@ -145,8 +167,8 @@ int main()
         }
         getEnvData(&data);
         printf("temperature:%d\thumidity:%d\n",data.temperature,data.humidity);
-        printf("wind_direction:%d\twind_speed:%d\nn=%ld\n",
-                    data.wind_direction,data.wind_speed,n);
+        printf("wind_direction:%d\twind_speed:%d\n",
+                    data.wind_direction,data.wind_speed);
 
         start = clock();
         //printf("low-load status begin\n");
