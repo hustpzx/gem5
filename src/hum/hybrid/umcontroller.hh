@@ -298,6 +298,15 @@ class UMController : public ClockedObject
     Stats::Scalar fmWriteNum;
     Stats::Scalar nmReadNum;
     Stats::Scalar nmWriteNum;
+    Stats::Scalar ec_fmWrites;
+    Stats::Scalar ec_fmReads;
+    Stats::Scalar ec_nmWrites;
+    Stats::Scalar ec_nmReads;
+    Stats::Scalar ec_bkpWrites;
+    Stats::Scalar ec_bkpReads;
+    Stats::Scalar lowState;
+    Stats::Scalar middleState;
+    Stats::Scalar highState;
 
     Stats::Formula extraTimeConsumption;
 
@@ -328,6 +337,9 @@ class UMController : public ClockedObject
     /// The hotness competition counter array, the array size is equal
     /// to capaticy ratio between STTRAM and SRAM
     std::vector<uint64_t> hotCounter;
+
+    /// The switch of EC-module
+    bool ecSwitch;
 
     /// the counter used to stat IO(memory access) numbers
     uint64_t ioCntr;

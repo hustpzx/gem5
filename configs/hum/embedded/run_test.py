@@ -18,9 +18,9 @@ system.clk_domain.voltage_domain = VoltageDomain()
 system.mem_mode = 'timing'
 # create two ranges to represent different memories
 system.mem_ranges = [
-    AddrRange('4096kB'),
-    AddrRange('4096kB', '4608kB'),
-    AddrRange('4096kB', '5120kB')
+    AddrRange('2048kB'),
+    AddrRange('2048kB', '2304kB'),
+    AddrRange('2304kB', '2560kB')
 ]
 
 # Create a simple CPU
@@ -32,6 +32,9 @@ system.umc = UMController()
 system.umc.farmem = system.mem_ranges[0]
 system.umc.nearmem = system.mem_ranges[1]
 system.umc.bkpmem = system.mem_ranges[2]
+
+
+system.umc.ecswitch = True
 
 # Connect the I and D cache ports of th CPU to the umc.
 # Since cpu_side is a vector port, each time one of these is connected, it
@@ -76,7 +79,8 @@ system.memories[2].port = system.bkpmem_delay.master
 process = Process()
 #process.cmd = ['tests/test-progs/hello/bin/arm/linux/hello']
 #process.cmd = ['tests/test-progs/umc/case1']
-process.cmd = ['tests/embedded-workload/arm-test']
+#process.cmd = ['tests/embedded-workload/arm-test']
+process.cmd = ['tests/embedded-workload/smart-home/arm-case']
 system.cpu.workload = process
 system.cpu.createThreads()
 

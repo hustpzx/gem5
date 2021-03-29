@@ -33,7 +33,7 @@ UMController::UMController(UMControllerParams *params) :
     blocked(false), waitingPortId(-1),
     originalPacket(nullptr), pagePktNum(0),
     nearMem(params->nearmem), farMem(params->farmem), bkpMem(params->bkpmem),
-    BLK_SIZE(1024), hotpos(0), tag(false),
+    BLK_SIZE(1024), hotpos(0), tag(false), ecSwitch(params->ecswitch),
     ioCntr(0), startTick(0), lastStatus(2),chipNum(4),strategy(0)
 {
     /// Since the CPU and memory side ports are a vector of ports, create an
@@ -249,35 +249,44 @@ UMController::handleRequest(PacketPtr pkt, int port_id)
     assert(waitingPortId == -1);
     waitingPortId = port_id;
 
-    Tick nowTick = curTick();
-    if (nowTick - startTick < INTERVAL){
-        if ((pkt->isRead() || pkt->isWrite())
-            && !(pkt->req->isInstFetch())){
-            ioCntr++;
+    if (ecSwitch){
+        Tick nowTick = curTick();
+        if (nowTick - startTick < INTERVAL){
+            if ((pkt->isRead() || pkt->isWrite())
+                && !(pkt->req->isInstFetch())){
+                ioCntr++;
+            }
+        }else{
+            DPRINTF(STATS, "ioCntr: %d\n", ioCntr);
+            // get current memory load status and compare
+
+
+            int status = getStatus(ioCntr);
+
+            if (status != lastStatus){
+                changeStatus(status);
+            } else{
+                if (lastStatus == 0){
+                    lowState++;
+                }else if (lastStatus == 1){
+                    middleState++;
+                }else{
+                    highState++;
+                }
+
+                DPRINTF(MemStatus, "Status: %d KEEP\n\n", lastStatus);
+            }
+
+            // Reset chip statistics(rmps & act)
+            for (int i=0; i<chipNum; i++){
+                chipRmpsNum[i] = 0;
+                chipActNum[i] = 0;
+            }
+
+            startTick = nowTick;
+            ioCntr = 0;
         }
-    }else{
-        DPRINTF(STATS, "ioCntr: %d\n", ioCntr);
-        // get current memory load status and compare
-
-
-        int status = getStatus(ioCntr);
-
-        if (status != lastStatus){
-            changeStatus(status);
-        } else{
-            DPRINTF(MemStatus, "Status: %d KEEP\n\n", lastStatus);
-        }
-
-        // Reset chip statistics(rmps & act)
-        for (int i=0; i<chipNum; i++){
-            chipRmpsNum[i] = 0;
-            chipActNum[i] = 0;
-        }
-
-        startTick = nowTick;
-        ioCntr = 0;
     }
-
     Addr laddr = pkt->getAddr();
     Addr block_addr = pkt->getBlockAddr(BLK_SIZE);
     Addr offset = pkt->getOffset(BLK_SIZE);
@@ -374,7 +383,9 @@ UMController::handlePageRequest(PacketPtr pkt)
             memPorts[0].sendPacket(pkt);
 
             // update chip act num
-            chipActNum[chipNo]++;
+            if (ecSwitch){
+                chipActNum[chipNo]++;
+            }
 
         } else{
 
@@ -432,7 +443,9 @@ UMController::handlePageRequest(PacketPtr pkt)
                 remappingTable[index] = rmp_entry;
 
             // update chip act num
-                chipActNum[chipNo]++;
+                if (ecSwitch){
+                    chipActNum[chipNo]++;
+                }
             } else {
             // no remapping relation between two pages
                 if (hotpos==0){
@@ -500,8 +513,11 @@ UMController::handlePageRequest(PacketPtr pkt)
                         hotCounterReset(rmp_entry, curpos-1);
                         migrationNum++;
 
-                        chipRmpsNum[chipNo]++;
-                        chipActNum[chipNo]++;
+                        if (ecSwitch){
+                            chipRmpsNum[chipNo]++;
+                            chipActNum[chipNo]++;
+                        }
+
                     }
                     remappingTable[index] = rmp_entry;
 
@@ -565,8 +581,9 @@ UMController::handlePageRequest(PacketPtr pkt)
                             fmWriteNum++;
                             delete rd_hot_pkt;
                             delete wb_pkt;
-
-                            chipActNum[chipNo]++;
+                            if (ecSwitch){
+                                chipActNum[chipNo]++;
+                            }
                             // 2. migrate the curpos page to NM
                             // this part is same for bellow cases, we leave it
                             // to outer if-else later
@@ -608,9 +625,10 @@ UMController::handlePageRequest(PacketPtr pkt)
                                 fmWriteNum++;
                                 delete rd_hot_pkt;
                                 delete wb_hot_pkt;
-
-                                chipRmpsNum[chipNo]++;
-                                chipActNum[chipNo]++;
+                                if (ecSwitch){
+                                    chipRmpsNum[chipNo]++;
+                                    chipActNum[chipNo]++;
+                                }
                                 // 4. migrate the curpage to NM
                             } else{
                                 // hotpos!=5, tag =1, the swapping process
@@ -672,8 +690,9 @@ UMController::handlePageRequest(PacketPtr pkt)
 
                                 delete rd_hot_pkt;
                                 delete wb_hot_pkt;
-
-                                chipActNum[chipNo]++;
+                                if (ecSwitch){
+                                    chipActNum[chipNo]++;
+                                }
                                 // 4. migrate the curpage to NM
                             } // end if hotpos==5
                         } // end if tag==0
@@ -724,7 +743,10 @@ UMController::handlePageRequest(PacketPtr pkt)
             Addr BKPaddr = addr - nearMem.start() + bkpMem.start();
             pkt->setAddr(BKPaddr);
             memPorts[2].sendPacket(pkt);
-            chipActNum[chipNo]++;
+            if (ecSwitch){
+                chipActNum[chipNo]++;
+            }
+
         }else{
 
             curpos = ratio + 1;
@@ -747,9 +769,10 @@ UMController::handlePageRequest(PacketPtr pkt)
                 hotCounterReset(rmp_entry, curpos-1);
 
                 remappingTable[index] = rmp_entry;
-
-                chipRmpsNum[chipNo]++;
-                chipActNum[chipNo]++;
+                if (ecSwitch){
+                    chipRmpsNum[chipNo]++;
+                    chipActNum[chipNo]++;
+                }
             } else {
                 // hotpos!=0, this NM page has beed used
                 if (hotpos==5){
@@ -761,7 +784,9 @@ UMController::handlePageRequest(PacketPtr pkt)
                     hotCounterInc(rmp_entry, curpos-1);
 
                     remappingTable[index] = rmp_entry;
-                    chipActNum[chipNo]++;
+                    if (ecSwitch){
+                        chipActNum[chipNo]++;
+                    }
 
                 } else{
                     // hotpos!=5 or 0, means this page was used by FM page
@@ -861,8 +886,10 @@ UMController::handlePageRequest(PacketPtr pkt)
                                 curpos);
                             hotCounterReset(rmp_entry, curpos-1);
                             remappingTable[index] = rmp_entry;
+                            if (ecSwitch){
+                                chipActNum[chipNo]++;
+                            }
 
-                            chipActNum[chipNo]++;
                         } // end if cnter compare
                     } // end if tag=0
                 } // end if hotpos = 5
@@ -1184,11 +1211,13 @@ UMController::changeStatus(int newStatus)
             DPRINTF(MemStatus, "Status: 0 HIGH->LOW\n\n");
             chips = chipNum / 4 + chipNum / 2;
             closeChip(chips);
+            lowState++;
             break;
         case MIDDLE_LOAD:
             DPRINTF(MemStatus, "Status: 1 HIGH->MIDDLE\n\n");
             chips = chipNum / 2;
             closeChip(2);
+            middleState++;
             break;
         default:
             panic("Invalid status 01\n");
@@ -1201,11 +1230,13 @@ UMController::changeStatus(int newStatus)
             DPRINTF(MemStatus, "Status: 2 MIDDLE->HIGH\n\n");
             chips = chipNum / 2;
             openChip(chips);
+            highState++;
             break;
         case LOW_LOAD:
             DPRINTF(MemStatus, "Status: 0 MIDDLE->LOW\n\n");
             chips = chipNum / 4;
             closeChip(chips);
+            lowState++;
             break;
         default:
             panic("Invalid status 02\n");
@@ -1218,11 +1249,13 @@ UMController::changeStatus(int newStatus)
             DPRINTF(MemStatus, "Status: 1 LOW->MIDDLE\n\n");
             chips = chipNum / 4;
             openChip(chips);
+            middleState++;
             break;
         case HIGH_LOAD:
             DPRINTF(MemStatus, "Status: 2 LOW->HIGH\n\n");
             chips = chipNum / 2 + chipNum / 4;
             openChip(chips);
+            highState++;
             break;
         default:
             panic("Invalid status 03\n");
@@ -1350,6 +1383,7 @@ UMController::moveData(int chipNo)
         rd_nm_pkt->allocate();
         memPorts[1].sendAtomic(rd_nm_pkt);
         assert(rd_nm_pkt->isResponse());
+        ec_nmReads++;
 
         if (hotpos != 0 && hotpos != (ratio+1) && tag == 0){
             // Exist FM->NM single direction remapping
@@ -1363,6 +1397,7 @@ UMController::moveData(int chipNo)
             wt_fm_pkt->setData(rd_nm_pkt->getPtr<uint8_t>());
             memPorts[0].sendAtomic(wt_fm_pkt);
             assert(wt_fm_pkt->isResponse());
+            ec_fmWrites++;
 
             delete wt_fm_pkt;
 
@@ -1380,6 +1415,7 @@ UMController::moveData(int chipNo)
             rd_fm_pkt->allocate();
             memPorts[0].sendAtomic(rd_fm_pkt);
             assert(rd_fm_pkt->isResponse());
+            ec_fmReads++;
 
             RequestPtr wt_fm_req = std::make_shared<Request>(
                     FMaddr, BLK_SIZE, 0 ,0);
@@ -1388,6 +1424,7 @@ UMController::moveData(int chipNo)
             wt_fm_pkt->setData(rd_nm_pkt->getPtr<uint8_t>());
             memPorts[0].sendAtomic(wt_fm_pkt);
             assert(wt_fm_pkt->isResponse());
+            ec_fmWrites++;
 
             // write original NM page to bkpMem
             BKPaddr = i * BLK_SIZE + bkpMem.start();
@@ -1398,6 +1435,7 @@ UMController::moveData(int chipNo)
             wt_bkp_pkt->setData(rd_fm_pkt->getPtr<uint8_t>());
             memPorts[2].sendAtomic(wt_bkp_pkt);
             assert(wt_bkp_pkt);
+            ec_bkpWrites++;
 
             delete rd_fm_pkt;
             delete wt_fm_pkt;
@@ -1418,6 +1456,7 @@ UMController::moveData(int chipNo)
             wt_bkp_pkt->setData(rd_nm_pkt->getPtr<uint8_t>());
             memPorts[2].sendAtomic(wt_bkp_pkt);
             assert(wt_bkp_pkt);
+            ec_bkpWrites++;
 
             delete wt_bkp_pkt;
 
@@ -1456,6 +1495,7 @@ UMController::restoreData(int chipNo)
             rd_bkp_pkt->allocate();
             memPorts[2].sendAtomic(rd_bkp_pkt);
             assert(rd_bkp_pkt->isResponse());
+            ec_bkpReads++;
 
             RequestPtr wt_nm_req = std::make_shared<Request>(
                 NMaddr, BLK_SIZE, 0, 0);
@@ -1464,6 +1504,7 @@ UMController::restoreData(int chipNo)
             wt_nm_pkt->setData(rd_bkp_pkt->getPtr<uint8_t>());
             memPorts[1].sendAtomic(wt_nm_pkt);
             assert(wt_nm_pkt->isResponse());
+            ec_nmWrites++;
 
             delete rd_bkp_pkt;
             delete wt_nm_pkt;
@@ -1518,6 +1559,27 @@ UMController::regStats()
              .desc("Number of extra NM read requests issued by UMC");
     nmWriteNum.name(name() + ".extra_nm_writes")
               .desc("Number of extra NM write requests issued by UMC");
+
+    ec_fmReads.name(name() + ".ec_fmReads")
+            .desc("Number of FM reads issued by EC-Module");
+    ec_fmWrites.name(name() + ".ec_fmWrites")
+            .desc("Number of FM writes issued by EC-Module");
+    ec_nmReads.name(name() + ".ec_nmReads")
+            .desc("Number of NM reads issued by EC-Module");
+    ec_nmWrites.name(name() + ".ec_nmWrites")
+            .desc("Number of NM Writes issued by EC-Module");
+    ec_bkpReads.name(name() + ".ec_bkpReads")
+            .desc("Number of bkpMem reads issued by EC-Module");
+    ec_bkpWrites.name(name() + ".ec_bkpWrites")
+            .desc("Number of bkpMem writes issued by EC-Module");
+
+    lowState.name(name() + ".ec_lowState")
+            .desc("The counter of low state");
+    middleState.name(name() + ".ec_middleState")
+            .desc("The counter of middle state");
+    highState.name(name() + ".ec_highState")
+            .desc("The counter of high state");
+
     extraTimeConsumption.name(name() + ".extraTimeConsumption")
             .desc("extra time consumption by umc controller");
 
@@ -1538,8 +1600,13 @@ UMController::regStats()
         fmReadNum * (BLK_SIZE * fm_bandwidth + fm_readLatency) +
         fmWriteNum * (BLK_SIZE * fm_bandwidth + fm_writeLatency) +
         nmReadNum * (BLK_SIZE * nm_bandwidth + nm_readLatency) +
-        nmWriteNum * (BLK_SIZE * nm_bandwidth + nm_writeLatency);
-
+        nmWriteNum * (BLK_SIZE * nm_bandwidth + nm_writeLatency) +
+        ec_nmReads * (BLK_SIZE * nm_bandwidth + nm_readLatency) +
+        ec_nmWrites * (BLK_SIZE * nm_bandwidth + nm_writeLatency) +
+        ec_fmReads * (BLK_SIZE * fm_bandwidth + fm_readLatency) +
+        ec_fmWrites * (BLK_SIZE * fm_bandwidth + fm_writeLatency) +
+        ec_bkpReads * (BLK_SIZE * fm_bandwidth + fm_readLatency) +
+        ec_bkpWrites * (BLK_SIZE * fm_bandwidth + fm_writeLatency);
 }
 
 
