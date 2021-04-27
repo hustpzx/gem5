@@ -17,16 +17,20 @@ elif [ "$1" = "thm" ];
 then
     SCRIPT=~/pzx/gem5/configs/hum/embedded/run_thmdtr.py
     OUT_DIR=~/pzx/gem5/m5out/embedded/thermodetector
+elif [ "$1" = "test" ];
+then
+    SCRIPT=~/pzx/gem5/configs/hum/embedded/run_test.py
+    OUT_DIR=~/pzx/gem5/m5out/embedded/test
 else
     echo 'ERROR: workload undefine!'
     exit
 fi
 
-#OPTIONS+=" --debug-flags=MemStatus"
-#OPTIONS+=" --debug-file=MemStatus.txt"
+OPTIONS+=" --debug-flags=MemStatus"
+OPTIONS+=" --debug-file=MemStatus.txt"
 
 #OPTIONS+=" --debug-flags=STATS"
-#OPTIONS+=" --debug-file=STATS.txt"
+#OPTIONS+=" --debug-file=ioCntr.txt"
 
 #OPTIONS+=" --debug-flags=ChipMnt"
 #OPTIONS+=" --debug-file=ChipMnt.txt"

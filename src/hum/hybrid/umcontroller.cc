@@ -265,6 +265,8 @@ UMController::handleRequest(PacketPtr pkt, int port_id)
 
             if (status != lastStatus){
                 changeStatus(status);
+                //DPRINTF(MemStatus, "Status: %d NEW\n\n", status);
+                //status = lastStatus;
             } else{
                 if (lastStatus == 0){
                     lowState++;

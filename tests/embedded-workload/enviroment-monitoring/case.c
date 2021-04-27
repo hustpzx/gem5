@@ -146,8 +146,8 @@ int main()
 {
     envData data = {0,0,0,0};
     // delay in clocks, 1000 clocks -> 1 minute
-    double lowload_delay = 5000; // 50 minutes at low-load status
-    double highload_delay = 500; //10 mintes at high-load
+    double lowload_delay = 5500; // 55 minutes at low-load status
+    double highload_delay = 500; // 5 mintes at high-load
     int h=1;
     long n;
     clock_t start;
@@ -160,10 +160,9 @@ int main()
 
         start = clock();
         n = 0;
-        while (clock() - start < highload_delay)
+        while (clock() - start < lowload_delay)
         {
-            n++;
-            middle_load();
+
         }
         getEnvData(&data);
         printf("temperature:%d\thumidity:%d\n",data.temperature,data.humidity);
@@ -172,17 +171,9 @@ int main()
 
         start = clock();
         //printf("low-load status begin\n");
-        while (clock() - start < lowload_delay){
-            n++;
-        }
-
-        start = clock();
-        n=0;
         while (clock() - start < highload_delay){
             middle_load();
-            n++;
         }
-
         printf("period end.\n");
 
         h++;
