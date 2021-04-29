@@ -38,7 +38,7 @@ system.cpu = TimingSimpleCPU()
 system.cpu.icache = Cache(size='128kB', assoc=4, tag_latency=0,
         data_latency=2, response_latency=1, mshrs=4, tgts_per_mshr=10)
 system.cpu.dcache = Cache(size='128kB', assoc=4, tag_latency=2,
-        data_latency=20,response_latency=1, mshrs=10, tgts_per_mshr=10)
+        data_latency=15,response_latency=1, mshrs=10, tgts_per_mshr=10)
 
 # Connect the instruction and data caches to the CPU
 system.cpu.icache_port = system.cpu.icache.cpu_side

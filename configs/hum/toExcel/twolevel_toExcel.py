@@ -2,8 +2,8 @@
 import xlsxwriter
 import collections
 
-benches = ['basicmath','blowfish','crc','patricia',
-    'rsynth','typeset', 'stringsearch']
+benches = ['basicmath','crc','patricia','rijndael',
+    'rsynth','typeset','sha', 'stringsearch']
 
 key_list = [
     'host_inst_rate',
@@ -23,13 +23,13 @@ key_list = [
 
 dict = collections.OrderedDict()
 
-workbook = xlsxwriter.Workbook('twolevel.xlsx')
+workbook = xlsxwriter.Workbook('twolevel-ea.xlsx')
 worksheet = workbook.add_worksheet()
 
 fisrtColumn = 0
 
 # twolevel scheme leakage power(mW)
-leakagePower = 4.093 + 113.781
+leakagePower = 910.248 / 4 + 13.407 * 2
 
 for j, bench in enumerate(benches):
     path = bench + '/small_stats.txt'
@@ -69,21 +69,21 @@ for j, bench in enumerate(benches):
     worksheet.write(length, j+1, staticEnergy)
 
     # access energy per bit, unit:nJ
-    fm_readEnergy = 0.103
-    fm_writeEnergy = 1.1
+    fm_readEnergy = 0.275
+    fm_writeEnergy = 0.747
     nm_readEnergy = 0.117
     nm_writeEnergy = 0.094
 
     cacheDynamic = ((int(dict['system.cache.readHits'])) * nm_readEnergy * 4
-        + (int(dict['system.cache.writeHits'])) * nm_writeEnergy * 4 ) *8
+        + (int(dict['system.cache.writeHits'])) * nm_writeEnergy * 4 ) #*8
     length = length + 2
     worksheet.write(length, 0, "cacheDynamic")
     worksheet.write(length, j+1, cacheDynamic)
 
-    memDynamic =
-    ((int(dict['system.memories.bytes_read::total'])) * fm_readEnergy
-    + (int(dict['system.memories.bytes_written::total'])) * fm_writeEnergy ) \
-        * 8
+    memDynamic = \
+        ((int(dict['system.memories.bytes_read::total'])) * fm_readEnergy
+    + (int(dict['system.memories.bytes_written::total'])) * fm_writeEnergy )
+        #* 8
     length = length + 2
     worksheet.write(length, 0, "memDynamic")
     worksheet.write(length, j+1, memDynamic)

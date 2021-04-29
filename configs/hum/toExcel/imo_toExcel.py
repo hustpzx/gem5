@@ -2,12 +2,10 @@
 import xlsxwriter
 import collections
 
-benches = ['basicmath','blowfish','crc','patricia',
-     'rsynth','typeset', 'stringsearch']
+benches = ['basicmath','crc','patricia','rijndael',
+     'rsynth','typeset','sha', 'stringsearch']
 
 key_list = [
-    'host_inst_rate',
-    'host_seconds',
     'sim_seconds',
     'sim_ticks',
     'system.cpu.op_class::MemRead',
@@ -35,13 +33,14 @@ key_list = [
 
 dict = collections.OrderedDict()
 
-workbook = xlsxwriter.Workbook('IMO.xlsx')
+workbook = xlsxwriter.Workbook('IMO_ea.xlsx')
 worksheet = workbook.add_worksheet()
 
 fisrtColumn = 0
 
 # IMO scheme leakage power(mW) ,contains SRAM, DRAM and STTRAM
-leakagePower = 113.781 + 54.237 + 4.093
+#leakagePower = 113.781 + 55.791 + 4.093
+leakagePower = 113.781 + 54.237 + 13.407 * 2
 
 # refresh power of DRAM(mW)
 refreshPower = 0.02
@@ -88,15 +87,15 @@ for j, bench in enumerate(benches):
     worksheet.write(length, j+1, refreshEnergy)
 
     # access energy per bit, unit:nJ
-    sttram_readEnergy = 0.103
-    sttram_writeEnergy = 1.1
-    dram_readEnergy = 0.318
-    dram_writeEnergy = 0.351
+    sttram_readEnergy = 0.275
+    sttram_writeEnergy = 0.747
+    dram_readEnergy = 0.694
+    dram_writeEnergy = 0.706
     sram_readEnergy = 0.117
     sram_writeEnergy = 0.094
 
 
-    dynamicEnergy =
+    dynamicEnergy =\
         ((int(dict['system.cpu.icache.ReadReq_hits::total'])) * \
             sram_readEnergy * 4
         + (int(dict['system.cpu.dcache.ReadReq_hits::total'])) * \
@@ -106,7 +105,7 @@ for j, bench in enumerate(benches):
         + (int(dict['system.mem_ctrl.bytes_read::total'])) * \
             sttram_readEnergy
         + (int(dict['system.mem_ctrl.bytes_written::total'])) * \
-            sttram_writeEnergy ) * 8
+            sttram_writeEnergy ) #* 8
 
     length = length + 2
     worksheet.write(length, 0, "dynamicEnergy")

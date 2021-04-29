@@ -2,12 +2,13 @@
 import xlsxwriter
 import collections
 
-benches = ['basicmath','blowfish','crc','patricia',
-         'rsynth','typeset', 'stringsearch']
+benches = ['basicmath','crc','patricia','rijndael' ,
+         'rsynth','typeset','sha', 'stringsearch']
 
 key_list = [
     'sim_seconds',
     'sim_ticks',
+    'sim_insts',
     'system.cpu.op_class::MemRead',
     'system.cpu.op_class::MemWrite',
 
@@ -15,11 +16,17 @@ key_list = [
     'system.umc.extra_fm_writes',
     'system.umc.extra_nm_reads',
     'system.umc.extra_nm_writes',
+    'system.umc.migrations',
 
     'system.memories0.bytes_read::total',
     'system.memories0.bytes_written::total',
     'system.memories1.bytes_read::total',
     'system.memories1.bytes_written::total',
+
+    'system.memories0.num_reads::total',
+    'system.memories0.num_writes::total',
+    'system.memories1.num_reads::total',
+    'system.memories1.num_writes::total',
 
     'system.umc.extraTimeConsumption'
 
@@ -27,16 +34,17 @@ key_list = [
 
 dict = collections.OrderedDict()
 
-workbook = xlsxwriter.Workbook('hyrbid.xlsx')
+workbook = xlsxwriter.Workbook('hybrid_ea.xlsx')
 worksheet = workbook.add_worksheet()
 
 fisrtColumn = 0
 
-# hybrid scheme leakage power(mW), contains SRAM & STTRAM
-leakagePower = 4.093 + 113.781
+# hybrid scheme leakage power(mW), contains 256kB SRAM & 2MB STTRAM
+# leakagePower = 4.093 + 113.781 * 2
+leakagePower = 910.248 / 4 + 13.407 * 2
 
 for j, bench in enumerate(benches):
-    s_path = bench + '/small_stats.txt'
+    s_path = bench + '/stats_256B.txt'
 
     # open & read the stats files
     with open(s_path, 'r') as f: lines = f.readlines()
@@ -66,15 +74,17 @@ for j, bench in enumerate(benches):
     for n, v in enumerate(dict.values()):
         worksheet.write(n+1, j+1, v)
 
-    staticEnergy = leakagePower * float(dict["sim_seconds"]) * 1000000
+    # static energy consumption, unit: mW*s -> nj
+    staticEnergy = leakagePower * (float(dict["sim_ticks"]) +
+        float(dict["system.umc.extraTimeConsumption"])) / 1000000
 
     length = len(key_list) +5
     worksheet.write(length, 0, "StaticEnergy")
     worksheet.write(length, j+1, staticEnergy)
 
     # access energy per bit, unit:nJ
-    fm_readEnergy = 0.103
-    fm_writeEnergy = 1.1
+    fm_readEnergy = 0.275
+    fm_writeEnergy = 0.747
     nm_readEnergy = 0.117
     nm_writeEnergy = 0.094
 
@@ -83,24 +93,26 @@ for j, bench in enumerate(benches):
         + int(dict["system.memories0.bytes_written::total"]) * fm_writeEnergy
         + int(dict["system.memories1.bytes_read::total"]) * nm_readEnergy
         + int(dict["system.memories1.bytes_written::total"]) * nm_writeEnergy \
-        ) * 8
-
+        ) #* 8
+    """
     extraDynamic =(int(dict["system.umc.extra_fm_reads"]) * fm_readEnergy
         + int(dict["system.umc.extra_fm_writes"]) * fm_writeEnergy
         + int(dict["system.umc.extra_nm_reads"]) * nm_readEnergy
-        + int(dict["system.umc.extra_nm_writes"]) * nm_writeEnergy ) \
-        * 8
+        + int(dict["system.umc.extra_nm_writes"]) * nm_writeEnergy )
+        #* 8
 
     length = length + 2
     worksheet.write(length, 0, "extraDynamicEnergy")
     worksheet.write(length, j+1, extraDynamic)
+    """
 
-    totalDynamic = memDynamic + extraDynamic
+    totalDynamic = memDynamic #+ extraDynamic
     length = length + 2
-    worksheet.write(length, 0, "totalDynamicEnergy")
+    worksheet.write(length, 0, "DynamicEnergy")
     worksheet.write(length, j+1, totalDynamic)
 
-    totalEnergy = staticEnergy + totalDynamic
+
+    totalEnergy = staticEnergy + memDynamic   #totalDynamic
     length = length + 2
     worksheet.write(length, 0, "totalEnergy")
     worksheet.write(length, j+1, totalEnergy)

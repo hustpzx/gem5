@@ -2,8 +2,8 @@
 import xlsxwriter
 import collections
 
-benches = ['basicmath','blowfish','crc','patricia',
-    'rsynth','typeset', 'stringsearch']
+benches = ['basicmath','crc','patricia','rijndael',
+    'rsynth','typeset','sha', 'stringsearch']
 
 key_list = [
     'sim_seconds',
@@ -23,13 +23,14 @@ key_list = [
 
 dict = collections.OrderedDict()
 
-workbook = xlsxwriter.Workbook('silc.xlsx')
+workbook = xlsxwriter.Workbook('silc-ea.xlsx')
 worksheet = workbook.add_worksheet()
 
 fisrtColumn = 0
 
 # silc scheme leakage power(mW)
-leakagePower = 4.093 + 113.781
+#leakagePower = 4.093 + 113.781 * 2
+leakagePower = 910.248 / 4 + 13.407 * 2
 
 for j, bench in enumerate(benches):
     path = bench + '/small_stats.txt'
@@ -58,19 +59,22 @@ for j, bench in enumerate(benches):
 
     fisrtColumn = 1
 
+    #print(dict)
+
     # write bench stats data to xlsx file
     for n, v in enumerate(dict.values()):
         worksheet.write(n+1, j+1, v)
 
-    staticEnergy = leakagePower * float(dict["sim_seconds"]) * 1000000
+    staticEnergy = leakagePower * (float(dict["sim_ticks"]) +
+        float(dict["system.silc.extraTimeConsumption"])) / 1000000
 
     length = len(key_list) +5
     worksheet.write(length, 0, "StaticEnergy")
     worksheet.write(length, j+1, staticEnergy)
 
     # access energy per bit, unit:nJ
-    fm_readEnergy = 0.103
-    fm_writeEnergy = 1.1
+    fm_readEnergy = 0.275
+    fm_writeEnergy = 0.747
     nm_readEnergy = 0.117
     nm_writeEnergy = 0.094
 
@@ -82,7 +86,7 @@ for j, bench in enumerate(benches):
         + int(dict["system.memories0.bytes_written::total"]) * fm_writeEnergy
         + int(dict["system.memories1.bytes_read::total"]) * nm_readEnergy
         + int(dict["system.memories1.bytes_written::total"]) * nm_writeEnergy \
-        ) * 8
+        ) #* 8
     length = length + 2
     worksheet.write(length, 0, "memDynamicEnergy")
     worksheet.write(length, j+1, memDynamic)
@@ -106,4 +110,4 @@ for j, bench in enumerate(benches):
     worksheet.write(length, j+1, totalEnergy)
 
 workbook.close()
-print("PURE stats data extracting finished")
+print("SILC stats data extracting finished")

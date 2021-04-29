@@ -2,8 +2,8 @@
 import xlsxwriter
 import collections
 
-benches = ['basicmath', 'blowfish','crc','patricia',
-    'rsynth','typeset', 'stringsearch']
+benches = ['basicmath', 'crc','patricia','rijndael',
+    'rsynth','typeset','sha', 'stringsearch']
 
 key_list = [
     'sim_seconds',
@@ -17,13 +17,14 @@ key_list = [
 
 dict = collections.OrderedDict()
 
-workbook = xlsxwriter.Workbook('pure.xlsx')
+workbook = xlsxwriter.Workbook('sttram-ea.xlsx')
 worksheet = workbook.add_worksheet()
 
 fisrtColumn = 0
 
-# pure-sttram scheme leakage power (mW)
-leakagePower = 4.093 * 2
+# pure-sttram scheme leakage power (mW) 2M+256k
+#leakagePower = 4.093 / 8 + 4.093
+leakagePower = 13.407 * 2.25
 
 for j, bench in enumerate(benches):
     path = bench + '/small_stats.txt'
@@ -63,13 +64,13 @@ for j, bench in enumerate(benches):
     worksheet.write(length, j+1, staticEnergy)
 
     # access energy per bit, unit:nJ
-    sttram_readEnergy = 0.103
-    sttram_writeEnergy = 1.1
+    sttram_readEnergy = 0.275
+    sttram_writeEnergy = 0.747
 
     dynamicEnergy = ((int(dict['system.memories.bytes_read::total'])) * \
             sttram_readEnergy
         + (int(dict['system.memories.bytes_written::total'])) * \
-            sttram_writeEnergy ) * 8
+            sttram_writeEnergy ) #* 8
     length = length + 2
     worksheet.write(length, 0, "dynamicEnergy")
     worksheet.write(length, j+1, dynamicEnergy)

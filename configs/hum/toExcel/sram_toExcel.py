@@ -2,8 +2,8 @@
 import xlsxwriter
 import collections
 
-benches = ['basicmath', 'blowfish','crc','patricia',
-    'rsynth','typeset', 'stringsearch']
+benches = ['basicmath', 'crc','patricia','rijndael',
+    'rsynth','typeset','sha', 'stringsearch']
 
 key_list = [
     'sim_seconds',
@@ -17,13 +17,13 @@ key_list = [
 
 dict = collections.OrderedDict()
 
-workbook = xlsxwriter.Workbook('sram.xlsx')
+workbook = xlsxwriter.Workbook('sram-ea.xlsx')
 worksheet = workbook.add_worksheet()
 
 fisrtColumn = 0
 
-# pure-sram scheme leakage power (mW)
-leakagePower = 113.781 * 4
+# pure-sram scheme leakage power (mW) 256kB + 2MB
+leakagePower = 910.248 * 2.25
 
 for j, bench in enumerate(benches):
     path = bench + '/small_stats.txt'
@@ -69,7 +69,7 @@ for j, bench in enumerate(benches):
     dynamicEnergy = \
     ((int(dict['system.memories.bytes_read::total'])) * sram_readEnergy
     + (int(dict['system.memories.bytes_written::total'])) * sram_writeEnergy \
-    ) * 8
+    ) #* 8
     length = length + 2
     worksheet.write(length, 0, "dynamicEnergy")
     worksheet.write(length, j+1, dynamicEnergy)

@@ -29,7 +29,7 @@ system.clk_domain.voltage_domain = VoltageDomain()
 
 # Set up the system
 system.mem_mode = 'timing'               # Use timing accesses
-system.mem_ranges = [AddrRange('8MB')] # Create an address range
+system.mem_ranges = [AddrRange('2MB')] # Create an address range
 
 # Create a simple CPU
 system.cpu = TimingSimpleCPU()
@@ -67,14 +67,8 @@ system.mem_ctrl.port = system.mem_delay.master
 
 # Create a process for a simple "Hello World" application
 process = Process()
-process.cmd = ['tests/mibench/typeset/lout-3.24/lout'] + \
-    ['-I'] + ['tests/mibench/typeset/lout-3.24/include'] + \
-    ['-D'] + ['tests/mibench/typeset/lout-3.24/data'] + \
-    ['-F'] + ['tests/mibench/typeset/lout-3.24/font'] + \
-    ['-C'] + ['tests/mibench/typeset/lout-3.24/maps'] + \
-    ['-H'] + ['tests/mibench/typeset/lout-3.24/hyph'] + \
-    ['tests/mibench/typeset/small.lout']
-process.output = 'output_small.ps'
+process.cmd = ['tests/mibench/sha/sha'] + ["input_small.asc"]
+process.output = 'output_small.txt'
 # Set the cpu to use the process as its workload and create thread contexts
 system.cpu.workload = process
 system.cpu.createThreads()

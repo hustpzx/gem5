@@ -15,7 +15,7 @@ UMController::UMController(UMControllerParams *params) :
     blocked(false), waitingPortId(-1),
     originalPacket(nullptr), pagePktNum(0),
     nearMem(params->nearmem), farMem(params->farmem),
-    BLK_SIZE(1024), hotpos(0), tag(false)
+    BLK_SIZE(64), hotpos(0), tag(false)
 {
     /// Since the CPU and memory side ports are a vector of ports, create an
     /// instance of the CPUSidePort for each connection. This member
@@ -388,7 +388,7 @@ UMController::handlePageRequest(PacketPtr pkt)
                         BLK_SIZE);
                     wt_pkt->allocate();
                     wt_pkt->setData(rd_pkt->getPtr<uint8_t>());
-                    memPorts[1].sendFunctional(wt_pkt);
+                    memPorts[1].sendAtomic(wt_pkt);
 
                     assert(wt_pkt->isResponse());
                     nmWriteNum++;
@@ -433,7 +433,7 @@ UMController::handlePageRequest(PacketPtr pkt)
                     PacketPtr rd_cur_pkt = new Packet(rd_cur_req,
                     MemCmd::ReadReq, BLK_SIZE);
                     rd_cur_pkt->allocate();
-                    memPorts[0].sendFunctional(rd_cur_pkt);
+                    memPorts[0].sendAtomic(rd_cur_pkt);
 
                     assert(rd_cur_pkt->isResponse());
                     fmReadNum++;
@@ -450,7 +450,7 @@ UMController::handlePageRequest(PacketPtr pkt)
                         PacketPtr rd_hot_pkt = new Packet(rd_hot_req,
                             MemCmd::ReadReq, BLK_SIZE);
                         rd_hot_pkt->allocate();
-                        memPorts[1].sendFunctional(rd_hot_pkt);
+                        memPorts[1].sendAtomic(rd_hot_pkt);
 
                         assert(rd_hot_pkt->isResponse());
                         nmReadNum++;
@@ -463,7 +463,7 @@ UMController::handlePageRequest(PacketPtr pkt)
                                 MemCmd::WriteReq, BLK_SIZE);
                         wb_pkt->allocate();
                         wb_pkt->setData(rd_hot_pkt->getPtr<uint8_t>());
-                        memPorts[0].sendFunctional(wb_pkt);
+                        memPorts[0].sendAtomic(wb_pkt);
 
                         assert(wb_pkt->isResponse());
                         fmWriteNum++;
@@ -490,7 +490,7 @@ UMController::handlePageRequest(PacketPtr pkt)
                             PacketPtr rd_hot_pkt = new Packet(rd_hot_req,
                                     MemCmd::ReadReq, BLK_SIZE);
                             rd_hot_pkt->allocate();
-                            memPorts[1].sendFunctional(rd_hot_pkt);
+                            memPorts[1].sendAtomic(rd_hot_pkt);
 
                             assert(rd_hot_pkt->isResponse());
                             nmReadNum++;
@@ -505,7 +505,7 @@ UMController::handlePageRequest(PacketPtr pkt)
                             wb_hot_pkt->allocate();
                             wb_hot_pkt->setData(
                                     rd_hot_pkt->getPtr<uint8_t>());
-                            memPorts[0].sendFunctional(wb_hot_pkt);
+                            memPorts[0].sendAtomic(wb_hot_pkt);
 
                             assert(wb_hot_pkt->isResponse());
                             fmWriteNum++;
@@ -526,7 +526,7 @@ UMController::handlePageRequest(PacketPtr pkt)
                             PacketPtr rd_tag_pkt = new Packet(rd_tag_req,
                                 MemCmd::ReadReq, BLK_SIZE);
                             rd_tag_pkt->allocate();
-                            memPorts[0].sendFunctional(rd_tag_pkt);
+                            memPorts[0].sendAtomic(rd_tag_pkt);
 
                             assert(rd_tag_pkt->isResponse());
                             fmReadNum++;
@@ -538,7 +538,7 @@ UMController::handlePageRequest(PacketPtr pkt)
                             wt_tag_pkt->allocate();
                             wt_tag_pkt->setData(
                                     rd_tag_pkt->getPtr<uint8_t>());
-                            memPorts[0].sendFunctional(wt_tag_pkt);
+                            memPorts[0].sendAtomic(wt_tag_pkt);
 
                             assert(wt_tag_pkt->isResponse());
                             fmWriteNum++;
@@ -554,7 +554,7 @@ UMController::handlePageRequest(PacketPtr pkt)
                             PacketPtr rd_hot_pkt = new Packet(rd_hot_req,
                                     MemCmd::ReadReq, BLK_SIZE);
                             rd_hot_pkt->allocate();
-                            memPorts[1].sendFunctional(rd_hot_pkt);
+                            memPorts[1].sendAtomic(rd_hot_pkt);
 
                             assert(rd_hot_pkt->isResponse());
                             nmReadNum++;
@@ -566,7 +566,7 @@ UMController::handlePageRequest(PacketPtr pkt)
                             wb_hot_pkt->allocate();
                             wb_hot_pkt->setData(
                                     rd_hot_pkt->getPtr<uint8_t>());
-                            memPorts[0].sendFunctional(wb_hot_pkt);
+                            memPorts[0].sendAtomic(wb_hot_pkt);
 
                             assert(wb_hot_pkt->isResponse());
                             fmWriteNum++;
@@ -586,7 +586,7 @@ UMController::handlePageRequest(PacketPtr pkt)
                         BLK_SIZE);
                     mg_pkt->allocate();
                     mg_pkt->setData(rd_cur_pkt->getPtr<uint8_t>());
-                    memPorts[1].sendFunctional(mg_pkt);
+                    memPorts[1].sendAtomic(mg_pkt);
 
                     assert(mg_pkt->isResponse());
                     nmWriteNum++;
@@ -696,7 +696,7 @@ UMController::handlePageRequest(PacketPtr pkt)
                         PacketPtr rd_tag_pkt = new Packet(rd_tag_req,
                             MemCmd::ReadReq, BLK_SIZE);
                         rd_tag_pkt->allocate();
-                        memPorts[0].sendFunctional(rd_tag_pkt);
+                        memPorts[0].sendAtomic(rd_tag_pkt);
 
                         assert(rd_tag_pkt->isResponse());
                         fmReadNum++;
@@ -706,7 +706,7 @@ UMController::handlePageRequest(PacketPtr pkt)
                         PacketPtr rd_hot_pkt = new Packet(rd_hot_req,
                             MemCmd::ReadReq, BLK_SIZE);
                         rd_hot_pkt->allocate();
-                        memPorts[1].sendFunctional(rd_hot_pkt);
+                        memPorts[1].sendAtomic(rd_hot_pkt);
 
                         assert(rd_hot_pkt->isResponse());
                         nmReadNum++;
@@ -717,7 +717,7 @@ UMController::handlePageRequest(PacketPtr pkt)
                                 MemCmd::WriteReq, BLK_SIZE);
                         wb_hot_pkt->allocate();
                         wb_hot_pkt->setData(rd_hot_pkt->getPtr<uint8_t>());
-                        memPorts[0].sendFunctional(wb_hot_pkt);
+                        memPorts[0].sendAtomic(wb_hot_pkt);
 
                         assert(wb_hot_pkt->isResponse());
                         fmWriteNum++;
@@ -731,7 +731,7 @@ UMController::handlePageRequest(PacketPtr pkt)
                             MemCmd::WriteReq, BLK_SIZE);
                         mg_tag_pkt->allocate();
                         mg_tag_pkt->setData(rd_tag_pkt->getPtr<uint8_t>());
-                        memPorts[1].sendFunctional(mg_tag_pkt);
+                        memPorts[1].sendAtomic(mg_tag_pkt);
 
                         assert(mg_tag_pkt->isResponse());
                         nmWriteNum++;
